@@ -1,0 +1,194 @@
+# ============================================================
+# Android / Gradle .aiignore
+# ============================================================
+
+# ------------------------------------------------------------
+# Gradle
+# ------------------------------------------------------------
+
+.gradle/
+build/
+**/build/
+
+# Gradle generated / temporary files
+**/.gradle/
+.gradle-cache/
+gradle-app.setting
+
+
+# ------------------------------------------------------------
+# Android build outputs
+# ------------------------------------------------------------
+
+*.apk
+*.aab
+*.apks
+*.dex
+*.class
+
+# Native build outputs
+.cxx/
+**/.cxx/
+.externalNativeBuild/
+**/.externalNativeBuild/
+
+# NDK / CMake build output
+cmake-build-*/
+**/cmake-build-*/
+
+
+# ------------------------------------------------------------
+# Android generated files
+# ------------------------------------------------------------
+
+gen/
+**/gen/
+
+generated/
+**/generated/
+
+generated_sources/
+**/generated_sources/
+
+generated_res/
+**/generated_res/
+
+kapt/
+**/kapt/
+
+ksp/
+**/ksp/
+
+lint/
+**/lint/
+
+outputs/
+**/outputs/
+
+intermediates/
+**/intermediates/
+
+
+# ------------------------------------------------------------
+# Test / coverage reports
+# ------------------------------------------------------------
+
+test-results/
+**/test-results/
+
+reports/
+**/reports/
+
+coverage/
+**/coverage/
+
+*.exec
+*.ec
+
+
+# ------------------------------------------------------------
+# IDE files
+# ------------------------------------------------------------
+
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Android Studio local state
+local.properties
+
+# ------------------------------------------------------------
+# Logs / temporary files
+# ------------------------------------------------------------
+
+*.log
+logs/
+**/logs/
+
+*.tmp
+*.temp
+*.bak
+
+tmp/
+temp/
+
+
+# ------------------------------------------------------------
+# OS generated files
+# ------------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# ------------------------------------------------------------
+# Environment / secrets
+# ------------------------------------------------------------
+
+.env
+.env.*
+*.env
+
+# Local configuration
+local.properties
+
+# Keystore / signing files
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Firebase / Google credentials
+google-services.json
+
+# Service account credentials
+service-account*.json
+*-service-account*.json
+
+
+# ------------------------------------------------------------
+# Large binary / archive files
+# ------------------------------------------------------------
+
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.iso
+
+# Images / videos that are not source assets
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+
+# ------------------------------------------------------------
+# Dependency caches / package managers
+# ------------------------------------------------------------
+
+node_modules/
+.npm/
+.yarn/
+.pnpm-store/
+
+# Kotlin / Java caches
+.kotlin/
+**/.kotlin/
+
+
+# ------------------------------------------------------------
+# Misc generated metadata
+# ------------------------------------------------------------
+
+*.hprof
+*.heapdump
+*.dump
+
+captures/
+**/captures/
+
+.externalNativeBuild/
