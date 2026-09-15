@@ -1,5 +1,6 @@
-import { temporaryDirectoryPath, readDir, unlink, extname, type FileType } from '@/utils/fs'
-import { readPic as _readPic } from 'react-native-local-media-metadata'
+import { temporaryDirectoryPath, readDir, unlink, extname, readFile, type FileType } from '@/utils/fs'
+import { readPic as _readPic, readLyric as _readLyric } from 'react-native-local-media-metadata'
+import iconv from 'iconv-lite'
 import { log } from '@/utils/log'
 export {
   type MusicMetadata,
@@ -7,9 +8,66 @@ export {
   readMetadata,
   writeMetadata,
   writePic,
-  readLyric,
   writeLyric,
 } from 'react-native-local-media-metadata'
+
+const replacementChar = '\uFFFD'
+// UniversalDetector 会将部分包含日文假名的 GBK 编码歌词文件误判为日文编码（如 EUC-JP），
+// 解码后会残留替换字符（乱码），此时尝试使用其它常见编码重新解码原始字节
+const fallbackEncodings = ['gb18030', 'big5', 'shift_jis', 'euc-jp', 'euc-kr']
+
+const countReplacementChar = (str: string) => {
+  let count = 0
+  for (let i = 0; i < str.length; i++) {
+    if (str.charCodeAt(i) === 0xFFFD) count++
+  }
+  return count
+}
+
+const decodeLyricBuffer = (data: Buffer): string | null => {
+  let best: string | null = null
+  let bestCount = Infinity
+  for (const encoding of fallbackEncodings) {
+    const text = iconv.decode(data, encoding)
+    const count = countReplacementChar(text)
+    if (count < bestCount) {
+      best = text
+      bestCount = count
+    }
+    if (count === 0) break
+  }
+  return best
+}
+
+const getLrcFilePath = (filePath: string) => {
+  const index = filePath.lastIndexOf('.')
+  return index === -1 ? `${filePath}.lrc` : `${filePath.substring(0, index)}.lrc`
+}
+
+/**
+ * 读取歌词
+ *
+ * 优先读取歌曲内嵌歌词，内嵌歌词不存在时再读取同名的外挂歌词文件（.lrc）
+ * 对于外挂歌词文件，在原生模块因编码识别错误导致乱码时，重新读取原始字节并使用
+ * 常见编码进行解码，以修复部分歌词乱码的问题
+ * @param filePath 歌曲文件路径
+ * @param isReadLrcFile 内嵌歌词不存在时是否读取同名的 .lrc 文件
+ */
+export const readLyric = async(filePath: string, isReadLrcFile = true): Promise<string> => {
+  // 优先读取歌曲内嵌歌词
+  const embeddedLyric = await _readLyric(filePath, false).catch(() => '')
+  if (embeddedLyric || !isReadLrcFile) return embeddedLyric
+  const lyric = await _readLyric(filePath, true)
+  if (!lyric || !lyric.includes(replacementChar)) return lyric
+  try {
+    const base64 = await readFile(getLrcFilePath(filePath), 'base64')
+    const decoded = decodeLyricBuffer(Buffer.from(base64, 'base64'))
+    if (decoded != null && !decoded.includes(replacementChar)) return decoded
+  } catch (error: any) {
+    log.warn(`Failed to decode lyric file: ${filePath}\n${error?.message ?? error}`)
+  }
+  return lyric
+}
 
 let cleared = false
 const picCachePath = temporaryDirectoryPath + '/local-media-metadata'
