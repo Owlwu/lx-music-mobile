@@ -8,7 +8,7 @@ import Slider, { type SliderProps } from '@/components/common/Slider'
 import { updateSetting } from '@/core/common'
 import { useI18n } from '@/lang'
 import styles from './style'
-import { setVolume } from '@/plugins/player'
+import { applyGlobalVolume } from '@/core/player/volume'
 
 
 const Volume = () => {
@@ -24,7 +24,7 @@ const Volume = () => {
   const handleValueChange: SliderProps['onValueChange'] = value => {
     value = Math.trunc(value)
     setSliderSize(value)
-    void setVolume(value / 100)
+    void applyGlobalVolume(value / 100)
   }
   const handleSlidingComplete: SliderProps['onSlidingComplete'] = value => {
     setSliding(false)

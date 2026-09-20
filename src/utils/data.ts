@@ -387,6 +387,14 @@ export const getPlayerLyric = async(musicInfo: LX.Music.MusicInfo): Promise<LX.P
   })
 }
 
+export const getMusicVolume = async(musicInfo: LX.Music.MusicInfo) => getData<number>(`${storageDataPrefix.musicVolume}${musicInfo.id}`).then((volume) => volume ?? 1)
+export const saveMusicVolume = async(musicInfo: LX.Music.MusicInfo, volume: number) => saveData(`${storageDataPrefix.musicVolume}${musicInfo.id}`, volume)
+export const removeMusicVolume = async(musicInfo: LX.Music.MusicInfo) => removeData(`${storageDataPrefix.musicVolume}${musicInfo.id}`)
+export const clearMusicVolume = async(keys?: string[]) => {
+  if (!keys) keys = (await getAllKeys()).filter(key => key.startsWith(storageDataPrefix.musicVolume))
+  await removeDataMultiple(keys)
+}
+
 export const getOtherSource = async(id: string) => getData<LX.Music.MusicInfoOnline[]>(`${storageDataPrefix.musicOtherSource}${id}`).then((url) => url ?? [])
 export const saveOtherSource = async(id: string, sourceInfo: LX.Music.MusicInfoOnline[]) => saveData(`${storageDataPrefix.musicOtherSource}${id}`, sourceInfo)
 export const clearOtherSource = async(keys?: string[]) => {

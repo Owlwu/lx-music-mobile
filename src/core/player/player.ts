@@ -28,6 +28,7 @@ import { checkIgnoringBatteryOptimization, checkNotificationPermission, debounce
 import { LIST_IDS } from '@/config/constant'
 import { addListMusics, removeListMusics } from '@/core/list'
 import { addDislikeInfo } from '@/core/dislikeList'
+import { applyMusicVolume, getEffectiveVolume } from '@/core/player/volume'
 
 // import { checkMusicFileAvailable } from '@renderer/utils/music'
 
@@ -231,13 +232,16 @@ const handlePlay = async() => {
     await checkNotificationPermission()
     void checkIgnoringBatteryOptimization()
     await playerInitial({
-      volume: settingState.setting['player.volume'],
+      volume: getEffectiveVolume(settingState.setting['player.volume'], 1),
       playRate: settingState.setting['player.playbackRate'],
       cacheSize: settingState.setting['player.cacheSize'] ? parseInt(settingState.setting['player.cacheSize']) : 0,
       isHandleAudioFocus: settingState.setting['player.isHandleAudioFocus'],
       isEnableAudioOffload: settingState.setting['player.isEnableAudioOffload'],
     })
   }
+
+  // 切歌时应用该歌曲持久化的音量系数
+  void applyMusicVolume(playerState.playMusicInfo.musicInfo)
 
   global.lx.isPlayedStop &&= false
   resetRandomNextMusicInfo()

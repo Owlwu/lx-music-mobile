@@ -190,6 +190,8 @@
   "play_detail_setting_lrc_align_left": "Left",
   "play_detail_setting_lrc_align_right": "Right",
   "play_detail_setting_lrc_font_size": "Lyric Font Size",
+  "play_detail_setting_music_volume": "Song Volume",
+  "play_detail_setting_music_volume_reset": "Reset",
   "play_detail_setting_playback_rate": "Playback Rate",
   "play_detail_setting_playback_rate_reset": "Reset",
   "play_detail_setting_show_lyric_progress_setting": "Allow to adjust playback progress by drag-and-drop lyrics",

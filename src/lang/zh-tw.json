@@ -190,6 +190,8 @@
   "play_detail_setting_lrc_align_left": "置左",
   "play_detail_setting_lrc_align_right": "置右",
   "play_detail_setting_lrc_font_size": "歌詞字體大小",
+  "play_detail_setting_music_volume": "單曲音量",
+  "play_detail_setting_music_volume_reset": "重設",
   "play_detail_setting_playback_rate": "播放速率",
   "play_detail_setting_playback_rate_reset": "重設",
   "play_detail_setting_show_lyric_progress_setting": "允許透過拖曳歌詞調整播放進度",

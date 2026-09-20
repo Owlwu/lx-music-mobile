@@ -49,6 +49,7 @@ export const storageDataPrefix = {
   lyric: '@lyric__',
   musicUrl: '@music_url__',
   musicOtherSource: '@music_other_source__',
+  musicVolume: '@music_volume__',
   playInfo: '@play_info',
 
   syncAuthKey: '@sync_auth_key',
