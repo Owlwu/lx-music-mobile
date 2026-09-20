@@ -12,6 +12,23 @@ import { type Metadata } from '@/components/MetadataEditModal'
 import musicSdk from '@/utils/musicSdk'
 import { getListMusicSync } from '@/utils/listManage'
 import { clearMusicUrlByMusic } from '@/utils/data'
+import { deleteLocalMusicFiles } from '@/utils/music'
+import { log } from '@/utils/log'
+
+const deleteLocalFile = async(musicInfo: LX.Music.MusicInfoLocal) => {
+  await deleteLocalMusicFiles(musicInfo).catch((error: Error) => {
+    log.warn(`Failed to delete local music file: ${musicInfo.meta.filePath}\n${error.message}`)
+  })
+}
+
+const deleteLocalFiles = async(musicInfos: LX.Music.MusicInfo[]) => {
+  if (!settingState.setting['list.isDeleteLocalFileWhenRemove']) return
+  await Promise.all(
+    musicInfos
+      .filter((musicInfo): musicInfo is LX.Music.MusicInfoLocal => musicInfo.source == 'local')
+      .map(deleteLocalFile),
+  )
+}
 
 export const handlePlay = (listId: SelectInfo['listId'], index: SelectInfo['index']) => {
   void playList(listId, index)
@@ -30,12 +47,14 @@ export const handleRemove = (listId: SelectInfo['listId'], musicInfo: SelectInfo
     void confirmDialog({
       message: global.i18n.t('list_remove_music_multi_tip', { num: selectedList.length }),
       confirmButtonText: global.i18n.t('list_remove_tip_button'),
-    }).then(isRemove => {
+    }).then(async(isRemove) => {
       if (!isRemove) return
+      await deleteLocalFiles(selectedList)
       void removeListMusics(listId, selectedList.map(s => s.id))
       onCancelSelect()
     })
   } else {
+    void deleteLocalFiles([musicInfo])
     void removeListMusics(listId, [musicInfo.id])
   }
 }

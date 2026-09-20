@@ -39,7 +39,7 @@ const decodeLyricBuffer = (data: Buffer): string | null => {
   return best
 }
 
-const getLrcFilePath = (filePath: string) => {
+export const getLrcFilePath = (filePath: string) => {
   const index = filePath.lastIndexOf('.')
   return index === -1 ? `${filePath}.lrc` : `${filePath.substring(0, index)}.lrc`
 }

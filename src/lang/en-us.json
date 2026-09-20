@@ -311,6 +311,7 @@
   "setting_list_add_music_location_type_bottom": "Bottom",
   "setting_list_add_music_location_type_top": "Top",
   "setting_list_click_action": "Automatically switch to current list when clicking a song in the list (Only valid for \"Playlists\" and \"Charts\" page)",
+  "setting_list_delete_local_file_when_remove": "Delete the local file and lyric file (.lrc) when removing a local song from the list",
   "setting_list_show interval": "Show song length",
   "setting_list_show_album_name": "Show song album name",
   "setting_lyric_desktop": "Desktop Lyric",

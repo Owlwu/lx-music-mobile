@@ -311,6 +311,7 @@
   "setting_list_add_music_location_type_bottom": "底部",
   "setting_list_add_music_location_type_top": "頂部",
   "setting_list_click_action": "點擊清單裡的歌曲時自動切換到目前清單播放（僅對歌單、排行榜有效）",
+  "setting_list_delete_local_file_when_remove": "從清單移除本機歌曲時，同時刪除本機檔案及歌詞檔案（.lrc）",
   "setting_list_show interval": "顯示歌曲時長",
   "setting_list_show_album_name": "顯示歌曲專輯",
   "setting_lyric_desktop": "桌面歌詞",

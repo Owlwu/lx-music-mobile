@@ -347,6 +347,11 @@ declare global {
       'list.addMusicLocationType': AddMusicLocationType
 
       /**
+       * 从列表移除本地歌曲时是否同时删除本地文件及对应的歌词文件（.lrc）
+       */
+      'list.isDeleteLocalFileWhenRemove': boolean
+
+      /**
        * 文件命名方式
        */
       'download.fileName': '歌名 - 歌手' | '歌手 - 歌名' | '歌名'
