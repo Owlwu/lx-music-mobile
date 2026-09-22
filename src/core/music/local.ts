@@ -12,7 +12,7 @@ import {
   getOnlineOtherSourcePicUrl,
   getOtherSource,
 } from './utils'
-import { getLocalFilePath } from '@/utils/music'
+import { formatLocalFilePathToUrl, getLocalFilePath } from '@/utils/music'
 import { readLyric, readPic } from '@/utils/localMediaMetadata'
 import { stat } from '@/utils/fs'
 
@@ -75,7 +75,7 @@ export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = tru
   if (!isRefresh) {
     const path = await getLocalFilePath(musicInfo)
     // console.log(path)
-    if (path) return path
+    if (path) return formatLocalFilePathToUrl(path)
   }
 
   try {
@@ -109,7 +109,7 @@ export const getPicUrl = async({ musicInfo, listId, isRefresh, skipFilePic, onTo
   if (!isRefresh && !skipFilePic) {
     let pic = await readPic(musicInfo.meta.filePath).catch(() => null)
     if (pic) {
-      if (pic.startsWith('/')) pic = `file://${pic}`
+      if (pic.startsWith('/')) pic = formatLocalFilePathToUrl(pic)
       return pic
     }
 
