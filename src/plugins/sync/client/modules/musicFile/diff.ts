@@ -11,9 +11,9 @@ export const AUDIO_EXTENSIONS = ['mp3', 'flac', 'ogg', 'oga', 'wav', 'm4a'] as c
 /** 单次 RPC 传输的原始字节数（base64 后约 256KB） */
 export const MUSIC_FILE_CHUNK_SIZE = 192 * 1024
 
-export type FileGroupKey = 'remoteAdded' | 'localAdded'
+export type FileGroupKey = 'remoteAdded' | 'localAdded' | 'remoteDeleted' | 'localDeleted' | 'conflict'
 
-export const FILE_GROUP_KEYS: FileGroupKey[] = ['remoteAdded', 'localAdded']
+export const FILE_GROUP_KEYS: FileGroupKey[] = ['remoteAdded', 'localAdded', 'remoteDeleted', 'localDeleted', 'conflict']
 
 export interface FileItem {
   /** 相对同步根目录的路径，使用 `/` 分隔 */
@@ -52,6 +52,8 @@ export interface ScanEntry {
 export type TransferAction =
   | { kind: 'download', path: string, size: number }
   | { kind: 'upload', path: string, size: number }
+  | { kind: 'delete_local', path: string }
+  | { kind: 'delete_remote', path: string }
 
 export const getExt = (name: string) => {
   const index = name.lastIndexOf('.')
@@ -131,6 +133,12 @@ export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
   return { folders: Array.from(folderSet).sort(), files }
 }
 
+/** 由索引中所有 path 构建基线（两端都存在的文件才进入基线） */
+export const buildBaseline = (localIndex: FileIndex, remoteIndex: FileIndex) => {
+  const remotePaths = new Set(remoteIndex.files.map(file => file.path))
+  return localIndex.files.map(file => file.path).filter(path => remotePaths.has(path)).sort()
+}
+
 const indexMap = (index: FileIndex) => {
   const map = new Map<string, FileItem>()
   for (const file of index.files) map.set(file.path, file)
@@ -140,32 +148,56 @@ const indexMap = (index: FileIndex) => {
 const emptyGroups = (): PlanGroups => ({
   remoteAdded: [],
   localAdded: [],
+  remoteDeleted: [],
+  localDeleted: [],
+  conflict: [],
 })
+
+export const getDefaultChecked = (group: FileGroupKey) => group === 'remoteAdded' || group === 'localAdded'
+
+export const getDefaultDirection = (group: FileGroupKey): TransferDirection => {
+  switch (group) {
+    case 'remoteAdded':
+    case 'localDeleted':
+    case 'conflict':
+      return 'pull'
+    default:
+      return 'push'
+  }
+}
 
 /**
  * 按契约 1.2 分类变更。size 相同即视为内容一致（mtime 不参与判断）。
- * 只有一端存在的文件按所在端归入 remoteAdded / localAdded。
  */
-export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex): PlanGroups => {
+export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baseline: readonly string[]): PlanGroups => {
   const local = indexMap(localIndex)
   const remote = indexMap(remoteIndex)
+  const baselineSet = new Set(baseline)
   const groups = emptyGroups()
 
   const paths = new Set<string>([...local.keys(), ...remote.keys()])
   for (const path of Array.from(paths).sort()) {
     const localFile = local.get(path)
     const remoteFile = remote.get(path)
+    const inBaseline = baselineSet.has(path)
 
-    if (localFile && remoteFile) continue
-    const group: FileGroupKey = localFile ? 'localAdded' : 'remoteAdded'
+    let group: FileGroupKey
+    if (localFile && remoteFile) {
+      if (localFile.size === remoteFile.size) continue
+      group = 'conflict'
+    } else if (localFile) {
+      group = inBaseline ? 'remoteDeleted' : 'localAdded'
+    } else if (remoteFile) {
+      group = inBaseline ? 'localDeleted' : 'remoteAdded'
+    } else continue
 
     groups[group].push({
       group,
       path,
       localSize: localFile ? localFile.size : null,
       remoteSize: remoteFile ? remoteFile.size : null,
-      defaultChecked: true,
-      defaultDirection: group === 'remoteAdded' ? 'pull' : 'push',
+      defaultChecked: getDefaultChecked(group),
+      defaultDirection: getDefaultDirection(group),
     })
   }
 
@@ -178,6 +210,7 @@ export const planSelectionKey = (group: FileGroupKey, path: string) => `${group}
 export const buildActions = (
   plan: PlanGroups,
   selection: Readonly<Record<string, boolean>>,
+  directions: Readonly<Record<string, TransferDirection>>,
 ): TransferAction[] => {
   const actions: TransferAction[] = []
   for (const group of FILE_GROUP_KEYS) {
@@ -189,6 +222,19 @@ export const buildActions = (
           break
         case 'localAdded':
           actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0 })
+          break
+        case 'remoteDeleted':
+          actions.push({ kind: 'delete_local', path: item.path })
+          break
+        case 'localDeleted':
+          actions.push({ kind: 'delete_remote', path: item.path })
+          break
+        case 'conflict':
+          if ((directions[planSelectionKey(group, item.path)] ?? item.defaultDirection) === 'pull') {
+            actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0 })
+          } else {
+            actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0 })
+          }
           break
       }
     }

@@ -1,5 +1,5 @@
 // 这个文件导出的方法将暴露给服务端调用，第一个参数固定为当前 socket 对象
-import { getIndex, getRoot, readChunk, writeChunk } from './service'
+import { getIndex, getRoot, readChunk, removeFile, writeChunk } from './service'
 
 /** 握手没有完成前拒绝一切文件读写，避免半握手状态被对端驱动 */
 const assertReady = (socket: LX.Sync.Socket) => {
@@ -25,6 +25,11 @@ const handler: LX.Sync.ClientSyncHandlerMusicFileActions<LX.Sync.Socket> = {
   async musicFile_write_file(socket, path, offset, data, isLast) {
     assertReady(socket)
     await writeChunk(path, offset, data, isLast)
+  },
+
+  async musicFile_delete_file(socket, path) {
+    assertReady(socket)
+    await removeFile(path)
   },
 
   async musicFile_sync_finished(socket) {

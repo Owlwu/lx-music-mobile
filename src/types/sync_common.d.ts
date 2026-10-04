@@ -13,6 +13,7 @@ declare namespace LX {
       musicFile_get_index: (scope: string[]) => LX.Sync.MusicFile.FileIndex
       musicFile_read_file: (path: string, offset: number, size: number) => LX.Sync.MusicFile.ReadFileResult
       musicFile_write_file: (path: string, offset: number, data: string, isLast: boolean) => void
+      musicFile_delete_file: (path: string) => void
     }
 
     type ServerSyncActions = WarpPromiseRecord<{

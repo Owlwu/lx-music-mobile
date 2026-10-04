@@ -6,7 +6,7 @@ import {
   type FileIndex,
   type ScanEntry,
 } from './diff'
-import { appendFile, existsFile, mkdir, readDir, readFileSlice, stat, writeFile } from '@/utils/fs'
+import { appendFile, existsFile, mkdir, readDir, readFileSlice, stat, unlink, writeFile } from '@/utils/fs'
 import settingState from '@/store/setting/state'
 
 /** 递归扫描的最大深度，防止异常目录结构导致栈溢出 */
@@ -128,4 +128,15 @@ export const rootExists = async(root: string) => {
   }
 }
 
+/** 删除文件 */
+export const deleteFile = async(root: string, relPath: string) => {
+  await removeIfExists(toAbsPath(root, relPath))
+}
+
 export const relDirOf = getRelDir
+
+const removeIfExists = async(absPath: string) => {
+  try {
+    await unlink(absPath)
+  } catch {}
+}

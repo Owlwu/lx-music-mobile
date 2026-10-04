@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { ScrollView, View } from 'react-native'
+import { ScrollView, TouchableOpacity, View } from 'react-native'
 
 import Popup, { type PopupType } from '@/components/common/Popup'
 import CheckBox from '@/components/common/CheckBox'
@@ -16,11 +16,14 @@ export interface MusicFileSyncModalType {
   show: () => void
 }
 
-const GROUP_KEYS: LX.Sync.MusicFile.FileGroupKey[] = ['remoteAdded', 'localAdded']
+const GROUP_KEYS: LX.Sync.MusicFile.FileGroupKey[] = ['remoteAdded', 'localAdded', 'remoteDeleted', 'localDeleted', 'conflict']
 
 const GROUP_TITLE_KEYS = {
   remoteAdded: 'setting_sync_music_file_group_remoteAdded',
   localAdded: 'setting_sync_music_file_group_localAdded',
+  remoteDeleted: 'setting_sync_music_file_group_remoteDeleted',
+  localDeleted: 'setting_sync_music_file_group_localDeleted',
+  conflict: 'setting_sync_music_file_group_conflict',
 } as const
 
 const selectionKey = (item: LX.Sync.MusicFile.PlanItem) => `${item.group}:${item.path}`
@@ -31,15 +34,22 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
   const popupRef = useRef<PopupType>(null)
   const [visible, setVisible] = useState(false)
   const [checked, setChecked] = useState<Record<string, boolean>>({})
+  const [direction, setDirection] = useState<Record<string, LX.Sync.MusicFile.TransferDirection>>({})
   const state = useMusicFileSync()
   const { plan, progress, busy, error, remoteRoot, remoteDeviceName } = state
 
   const initSelection = useCallback((groups: LX.Sync.MusicFile.PlanGroups) => {
     const nextChecked: Record<string, boolean> = {}
+    const nextDirection: Record<string, LX.Sync.MusicFile.TransferDirection> = {}
     for (const key of GROUP_KEYS) {
-      for (const item of groups[key] ?? []) nextChecked[selectionKey(item)] = item.defaultChecked
+      for (const item of groups[key] ?? []) {
+        const sk = selectionKey(item)
+        nextChecked[sk] = item.defaultChecked
+        nextDirection[sk] = item.defaultDirection
+      }
     }
     setChecked(nextChecked)
+    setDirection(nextDirection)
   }, [])
 
   useImperativeHandle(ref, () => ({
@@ -59,8 +69,8 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
   }, [initSelection])
 
   const handleApply = useCallback(() => {
-    void applySync({ checked })
-  }, [checked])
+    void applySync({ checked, direction })
+  }, [checked, direction])
 
   const handleCancel = useCallback(() => {
     cancel()
@@ -144,6 +154,24 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
                                   </Text>
                                 </View>
                               </CheckBox>
+                              {group.key === 'conflict'
+                                ? (
+                                    <View style={styles.direction}>
+                                      <TouchableOpacity
+                                        style={{ ...styles.dirBtn, borderColor: (direction[selectionKey(item)] ?? item.defaultDirection) === 'pull' ? theme['c-primary'] : theme['c-border-background'] }}
+                                        onPress={() => { setDirection(prev => ({ ...prev, [selectionKey(item)]: 'pull' })) }}
+                                      >
+                                        <Text size={11}>{t('setting_sync_music_file_use_remote')}</Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        style={{ ...styles.dirBtn, borderColor: (direction[selectionKey(item)] ?? item.defaultDirection) === 'push' ? theme['c-primary'] : theme['c-border-background'] }}
+                                        onPress={() => { setDirection(prev => ({ ...prev, [selectionKey(item)]: 'push' })) }}
+                                      >
+                                        <Text size={11}>{t('setting_sync_music_file_use_local')}</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  )
+                                : null}
                             </View>
                           ))}
                         </View>
@@ -155,7 +183,7 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
           : null}
       </ScrollView>
     )
-  }, [error, remoteRoot, remoteDeviceName, progress.running, progress.message, progressText, progressPercent, plan, totalChanges, groups, checked, setGroupChecked, t, theme])
+  }, [error, remoteRoot, remoteDeviceName, progress.running, progress.message, progressText, progressPercent, plan, totalChanges, groups, checked, direction, setGroupChecked, t, theme])
 
   return (
     visible
@@ -212,6 +240,20 @@ const styles = createStyle({
   },
   itemText: {
     flexShrink: 1,
+  },
+  direction: {
+    flexDirection: 'row',
+    paddingLeft: 20,
+    paddingTop: 4,
+  },
+  dirBtn: {
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingLeft: 6,
+    paddingRight: 6,
+    paddingTop: 2,
+    paddingBottom: 2,
+    marginRight: 6,
   },
   footer: {
     flexDirection: 'row',

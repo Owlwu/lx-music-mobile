@@ -17,7 +17,7 @@ declare namespace LX {
         files: FileItem[]
       }
 
-      type FileGroupKey = 'remoteAdded' | 'localAdded'
+      type FileGroupKey = 'remoteAdded' | 'localAdded' | 'remoteDeleted' | 'localDeleted' | 'conflict'
 
       type TransferDirection = 'push' | 'pull'
 
@@ -32,7 +32,7 @@ declare namespace LX {
 
       type PlanGroups = Record<FileGroupKey, PlanItem[]>
 
-      type TransferActionKind = 'download' | 'upload'
+      type TransferActionKind = 'download' | 'upload' | 'delete_local' | 'delete_remote'
 
       interface ReadFileResult {
         /** base64 分片 */
@@ -93,11 +93,15 @@ declare namespace LX {
       interface Selection {
         /** key 为 `${group}:${path}` */
         checked: Record<string, boolean>
+        /** key 为 `${group}:${path}` */
+        direction: Record<string, TransferDirection>
       }
 
       interface ApplyResult {
         downloaded: number
         uploaded: number
+        deletedLocal: number
+        deletedRemote: number
         errors: string[]
       }
     }
