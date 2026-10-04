@@ -11,15 +11,25 @@ export const AUDIO_EXTENSIONS = ['mp3', 'flac', 'ogg', 'oga', 'wav', 'm4a'] as c
 /** 单次 RPC 传输的原始字节数（base64 后约 256KB） */
 export const MUSIC_FILE_CHUNK_SIZE = 192 * 1024
 
+/** 伴生歌词文件的扩展名 */
+export const LYRIC_EXTENSION = 'lrc'
+
 export type FileGroupKey = 'remoteAdded' | 'localAdded' | 'remoteDeleted' | 'localDeleted' | 'conflict'
 
 export const FILE_GROUP_KEYS: FileGroupKey[] = ['remoteAdded', 'localAdded', 'remoteDeleted', 'localDeleted', 'conflict']
+
+export interface LyricItem {
+  size: number
+  mtime: number
+}
 
 export interface FileItem {
   /** 相对同步根目录的路径，使用 `/` 分隔 */
   path: string
   size: number
   mtime: number
+  /** 同目录同名的 .lrc 文件信息，不存在时为 null */
+  lyric: LyricItem | null
 }
 
 export interface FileIndex {
@@ -34,6 +44,8 @@ export interface PlanItem {
   path: string
   localSize: number | null
   remoteSize: number | null
+  localHasLyric: boolean
+  remoteHasLyric: boolean
   defaultChecked: boolean
   defaultDirection: TransferDirection
 }
@@ -50,10 +62,10 @@ export interface ScanEntry {
 }
 
 export type TransferAction =
-  | { kind: 'download', path: string, size: number }
-  | { kind: 'upload', path: string, size: number }
-  | { kind: 'delete_local', path: string }
-  | { kind: 'delete_remote', path: string }
+  | { kind: 'download', path: string, size: number, hasLyric: boolean }
+  | { kind: 'upload', path: string, size: number, hasLyric: boolean }
+  | { kind: 'delete_local', path: string, hasLyric: boolean }
+  | { kind: 'delete_remote', path: string, hasLyric: boolean }
 
 export const getExt = (name: string) => {
   const index = name.lastIndexOf('.')
@@ -61,6 +73,20 @@ export const getExt = (name: string) => {
 }
 
 export const isAudioFileName = (name: string) => (AUDIO_EXTENSIONS as readonly string[]).includes(getExt(name))
+
+export const isLyricFileName = (name: string) => getExt(name) === LYRIC_EXTENSION
+
+/** `a/b/c.flac` -> `a/b/c.lrc` */
+export const getLyricFileName = (name: string) => {
+  const index = name.lastIndexOf('.')
+  return (index > 0 ? name.substring(0, index) : name) + '.' + LYRIC_EXTENSION
+}
+
+/** `a/b/c.flac` -> `a/b/c` */
+export const getLyricRelPath = (relPath: string) => {
+  const index = relPath.lastIndexOf('.')
+  return (index > 0 ? relPath.substring(0, index) : relPath) + '.' + LYRIC_EXTENSION
+}
 
 /** 统一分隔符并去掉多余的前导 `./` */
 export const normalizeRelPath = (relPath: string) => relPath.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/{2,}/g, '/')
@@ -111,10 +137,16 @@ export const normalizeScope = (scope: readonly string[]) => {
 }
 
 /**
- * 由扫描结果构建索引：只保留音频文件。
- * 传入的 `entries` 是目录下所有文件的原始列表。
+ * 由扫描结果构建索引：只保留音频文件，并把同目录同名的 .lrc 挂到对应音频上。
+ * 传入的 `entries` 是目录下所有文件的原始列表（含 .lrc），函数内部完成配对。
  */
 export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
+  const lyricMap = new Map<string, LyricItem>()
+  for (const entry of entries) {
+    if (!isLyricFileName(entry.path)) continue
+    lyricMap.set(entry.path, { size: entry.size, mtime: entry.mtime })
+  }
+
   const folderSet = new Set<string>()
   const files: FileItem[] = []
   for (const entry of entries) {
@@ -123,6 +155,7 @@ export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
       path: entry.path,
       size: entry.size,
       mtime: entry.mtime,
+      lyric: lyricMap.get(getLyricRelPath(entry.path)) ?? null,
     })
     const dir = getRelDir(entry.path)
     if (!dir.length) continue
@@ -196,6 +229,8 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
       path,
       localSize: localFile ? localFile.size : null,
       remoteSize: remoteFile ? remoteFile.size : null,
+      localHasLyric: localFile?.lyric != null,
+      remoteHasLyric: remoteFile?.lyric != null,
       defaultChecked: getDefaultChecked(group),
       defaultDirection: getDefaultDirection(group),
     })
@@ -206,7 +241,10 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
 
 export const planSelectionKey = (group: FileGroupKey, path: string) => `${group}:${path}`
 
-/** 把用户的勾选结果转换成实际要执行的传输动作 */
+/**
+ * 把用户的勾选结果转换成实际要执行的传输动作。
+ * 每个动作都携带伴生 .lrc，保证歌词跟随歌曲一起传输/删除。
+ */
 export const buildActions = (
   plan: PlanGroups,
   selection: Readonly<Record<string, boolean>>,
@@ -218,22 +256,22 @@ export const buildActions = (
       if (!selection[planSelectionKey(group, item.path)]) continue
       switch (group) {
         case 'remoteAdded':
-          actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0 })
+          actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0, hasLyric: item.remoteHasLyric })
           break
         case 'localAdded':
-          actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0 })
+          actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0, hasLyric: item.localHasLyric })
           break
         case 'remoteDeleted':
-          actions.push({ kind: 'delete_local', path: item.path })
+          actions.push({ kind: 'delete_local', path: item.path, hasLyric: item.localHasLyric })
           break
         case 'localDeleted':
-          actions.push({ kind: 'delete_remote', path: item.path })
+          actions.push({ kind: 'delete_remote', path: item.path, hasLyric: item.remoteHasLyric })
           break
         case 'conflict':
           if ((directions[planSelectionKey(group, item.path)] ?? item.defaultDirection) === 'pull') {
-            actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0 })
+            actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0, hasLyric: item.remoteHasLyric })
           } else {
-            actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0 })
+            actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0, hasLyric: item.localHasLyric })
           }
           break
       }

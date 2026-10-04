@@ -397,6 +397,7 @@
   "setting_sync_music_file_group_localDeleted": "Deleted locally (can be deleted on the peer)",
   "setting_sync_music_file_group_remoteAdded": "Added on the peer (can be downloaded)",
   "setting_sync_music_file_group_remoteDeleted": "Deleted on the peer (can be deleted locally)",
+  "setting_sync_music_file_has_lyric": "with lyric",
   "setting_sync_music_file_local": "Local",
   "setting_sync_music_file_plan_empty": "Both sides are identical, nothing to sync.",
   "setting_sync_music_file_plan_summary": "{count} change(s). Deletion items are unchecked by default, please confirm before selecting them.",

@@ -5,11 +5,18 @@ declare namespace LX {
      * 协议与判定规则见 `lx-music-desktop/doc/music-file-sync/本地音乐文件同步-设计.md`
      */
     namespace MusicFile {
+      interface LyricItem {
+        size: number
+        mtime: number
+      }
+
       interface FileItem {
         /** 相对同步根目录的路径，使用 `/` 分隔 */
         path: string
         size: number
         mtime: number
+        /** 同目录同名的 .lrc，不存在时为 null */
+        lyric: LyricItem | null
       }
 
       interface FileIndex {
@@ -26,6 +33,8 @@ declare namespace LX {
         path: string
         localSize: number | null
         remoteSize: number | null
+        localHasLyric: boolean
+        remoteHasLyric: boolean
         defaultChecked: boolean
         defaultDirection: TransferDirection
       }

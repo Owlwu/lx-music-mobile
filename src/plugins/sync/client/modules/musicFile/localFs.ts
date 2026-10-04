@@ -1,8 +1,10 @@
 import {
   assertSafeRelPath,
   buildIndex,
+  getLyricRelPath,
   getRelDir,
   isAudioFileName,
+  isLyricFileName,
   type FileIndex,
   type ScanEntry,
 } from './diff'
@@ -39,7 +41,7 @@ const readDirSafe = async(path: string) => {
   }
 }
 
-/** 扫描 scope 内所有文件夹下的音频文件 */
+/** 扫描 scope 内所有文件夹下的音频与歌词文件 */
 export const scanEntries = async(root: string, scope: readonly string[] = getScope()): Promise<ScanEntry[]> => {
   const entries: ScanEntry[] = []
   const walk = async(absDir: string, relDir: string, depth: number) => {
@@ -54,7 +56,7 @@ export const scanEntries = async(root: string, scope: readonly string[] = getSco
         continue
       }
       if (!file.isFile) continue
-      if (!isAudioFileName(name)) continue
+      if (!isAudioFileName(name) && !isLyricFileName(name)) continue
       entries.push({ path: relPath, size: file.size ?? 0, mtime: file.lastModified ?? 0 })
     }
   }
@@ -118,6 +120,12 @@ export const writeFileChunk = async(root: string, relPath: string, offset: numbe
   void isLast
 }
 
+/** 删除文件；withLyric 为真时同时删除伴生 .lrc */
+export const deleteFileWithLyric = async(root: string, relPath: string, withLyric: boolean) => {
+  await removeIfExists(toAbsPath(root, relPath))
+  if (withLyric) await removeIfExists(toAbsPath(root, getLyricRelPath(relPath)))
+}
+
 export const rootExists = async(root: string) => {
   if (!root) return false
   try {
@@ -126,11 +134,6 @@ export const rootExists = async(root: string) => {
   } catch {
     return false
   }
-}
-
-/** 删除文件 */
-export const deleteFile = async(root: string, relPath: string) => {
-  await removeIfExists(toAbsPath(root, relPath))
 }
 
 export const relDirOf = getRelDir

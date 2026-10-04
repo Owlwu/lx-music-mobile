@@ -150,6 +150,7 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
                                     {[
                                       item.localSize != null ? `${t('setting_sync_music_file_local')} ${sizeFormate(item.localSize)}` : '',
                                       item.remoteSize != null ? `${t('setting_sync_music_file_remote')} ${sizeFormate(item.remoteSize)}` : '',
+                                      item.localHasLyric || item.remoteHasLyric ? t('setting_sync_music_file_has_lyric') : '',
                                     ].filter(Boolean).join(' · ')}
                                   </Text>
                                 </View>

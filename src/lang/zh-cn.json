@@ -397,6 +397,7 @@
   "setting_sync_music_file_group_localDeleted": "本地已删除（可删除对端文件）",
   "setting_sync_music_file_group_remoteAdded": "对端新增（可下载到本地）",
   "setting_sync_music_file_group_remoteDeleted": "对端已删除（可删除本地文件）",
+  "setting_sync_music_file_has_lyric": "含歌词",
   "setting_sync_music_file_local": "本地",
   "setting_sync_music_file_plan_empty": "两端文件一致，无需同步。",
   "setting_sync_music_file_plan_summary": "共 {count} 项变更。删除类项目默认不勾选，请确认后再勾选。",

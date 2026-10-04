@@ -4,6 +4,7 @@ import {
   buildPlan,
   MUSIC_FILE_CHUNK_SIZE,
   normalizeScope,
+  type TransferAction,
 } from './diff'
 import * as localFs from './localFs'
 import { getSocket } from '../../client'
@@ -15,7 +16,7 @@ interface MusicFilePeer {
   musicFile_get_index: (scope: string[]) => Promise<LX.Sync.MusicFile.FileIndex>
   musicFile_read_file: (path: string, offset: number, size: number) => Promise<LX.Sync.MusicFile.ReadFileResult>
   musicFile_write_file: (path: string, offset: number, data: string, isLast: boolean) => Promise<void>
-  musicFile_delete_file: (path: string) => Promise<void>
+  musicFile_delete_file: (path: string, withLyric: boolean) => Promise<void>
 }
 
 const createProgress = (): LX.Sync.MusicFile.Progress => ({
@@ -131,6 +132,18 @@ const base64Size = (data: string) => {
   return Math.floor(data.length / 4) * 3 - padding
 }
 
+const lyricRelPath = (relPath: string) => {
+  const index = relPath.lastIndexOf('.')
+  return (index > 0 ? relPath.substring(0, index) : relPath) + '.lrc'
+}
+
+/** 按相对路径索引伴生歌词的大小，用于把歌词算进进度总量 */
+const buildLyricSizeMap = (index: LX.Sync.MusicFile.FileIndex) => {
+  const map = new Map<string, number>()
+  for (const file of index.files) map.set(file.path, file.lyric?.size ?? 0)
+  return map
+}
+
 /** 执行用户在清单中勾选的传输动作 */
 export const apply = async(selection: LX.Sync.MusicFile.Selection): Promise<LX.Sync.MusicFile.ApplyResult> => {
   const { peer, root, scope } = await requirePeer()
@@ -145,9 +158,12 @@ export const apply = async(selection: LX.Sync.MusicFile.Selection): Promise<LX.S
     const remoteIndex = await peer.musicFile_get_index(scope)
     const plan = buildPlan(localIndex, remoteIndex, await getMusicFileSyncBaseline())
     const actions = buildActions(plan, selection.checked, selection.direction)
+    const localLyricSizes = buildLyricSizeMap(localIndex)
+    const remoteLyricSizes = buildLyricSizeMap(remoteIndex)
     const totalBytes = actions.reduce((sum, action) => {
       if (!('size' in action)) return sum
-      return sum + action.size
+      const lyricSizes = action.kind === 'download' ? remoteLyricSizes : localLyricSizes
+      return sum + action.size + (action.hasLyric ? lyricSizes.get(action.path) ?? 0 : 0)
     }, 0)
 
     let doneBytes = 0
@@ -162,31 +178,41 @@ export const apply = async(selection: LX.Sync.MusicFile.Selection): Promise<LX.S
       message: '',
     })
 
+    const targetsOf = (action: TransferAction) => {
+      const list = [action.path]
+      if (action.hasLyric) list.push(lyricRelPath(action.path))
+      return list
+    }
+
     for (let index = 0; index < actions.length; index++) {
       const action = actions[index]
       updateProgress({ actionIndex: index + 1, kind: action.kind, path: action.path, fileBytes: 0 })
       try {
         switch (action.kind) {
           case 'download':
-            await transferDownloadFile(peer, root, action.path, (bytes) => {
-              doneBytes += bytes
-              updateProgress({ fileBytes: progress.fileBytes + bytes, doneBytes })
-            })
+            for (const target of targetsOf(action)) {
+              await transferDownloadFile(peer, root, target, (bytes) => {
+                doneBytes += bytes
+                updateProgress({ fileBytes: progress.fileBytes + bytes, doneBytes })
+              })
+            }
             result.downloaded++
             break
           case 'upload':
-            await transferUploadFile(peer, root, action.path, (bytes) => {
-              doneBytes += bytes
-              updateProgress({ fileBytes: progress.fileBytes + bytes, doneBytes })
-            })
+            for (const target of targetsOf(action)) {
+              await transferUploadFile(peer, root, target, (bytes) => {
+                doneBytes += bytes
+                updateProgress({ fileBytes: progress.fileBytes + bytes, doneBytes })
+              })
+            }
             result.uploaded++
             break
           case 'delete_local':
-            await localFs.deleteFile(root, action.path)
+            await localFs.deleteFileWithLyric(root, action.path, action.hasLyric)
             result.deletedLocal++
             break
           case 'delete_remote':
-            await peer.musicFile_delete_file(action.path)
+            await peer.musicFile_delete_file(action.path, action.hasLyric)
             result.deletedRemote++
             break
         }
@@ -238,6 +264,6 @@ export const writeChunk = async(relPath: string, offset: number, data: string, i
 }
 
 /** 协议：删除本机文件 */
-export const removeFile = async(relPath: string) => {
-  await localFs.deleteFile(localFs.getRootPath(), relPath)
+export const removeFile = async(relPath: string, withLyric: boolean) => {
+  await localFs.deleteFileWithLyric(localFs.getRootPath(), relPath, withLyric)
 }

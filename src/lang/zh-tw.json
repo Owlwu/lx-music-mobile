@@ -397,6 +397,7 @@
   "setting_sync_music_file_group_localDeleted": "本機已刪除（可刪除對端檔案）",
   "setting_sync_music_file_group_remoteAdded": "對端新增（可下載到本機）",
   "setting_sync_music_file_group_remoteDeleted": "對端已刪除（可刪除本機檔案）",
+  "setting_sync_music_file_has_lyric": "含歌詞",
   "setting_sync_music_file_local": "本機",
   "setting_sync_music_file_plan_empty": "兩端檔案一致，無需同步。",
   "setting_sync_music_file_plan_summary": "共 {count} 項變更。刪除類項目預設不勾選，請確認後再勾選。",
