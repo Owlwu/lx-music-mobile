@@ -360,6 +360,11 @@ declare global {
        * 是否启用同步
        */
       'sync.enable': boolean
+
+      /**
+       * 本地音乐文件同步：同步歌曲存放路径（本机绝对路径）
+       */
+      'sync.musicFile.root': string
     }
   }
 }

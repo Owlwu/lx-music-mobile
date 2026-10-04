@@ -5,7 +5,7 @@
 import { featureVersion } from '../modules'
 
 
-const handler: Omit<LX.Sync.ClientSyncHandlerActions<LX.Sync.Socket>, 'finished'> = {
+const handler: Omit<LX.Sync.ClientSyncHandlerFeatureActions<LX.Sync.Socket>, 'finished'> = {
   async getEnabledFeatures(socket, serverType, supportedFeatures) {
   // const userSpace = getUserSpace(socket.userInfo.name)
     const features: LX.Sync.EnabledFeatures = {}
@@ -17,6 +17,9 @@ const handler: Omit<LX.Sync.ClientSyncHandlerActions<LX.Sync.Socket>, 'finished'
         if (featureVersion.dislike == supportedFeatures.dislike) {
           features.dislike = { skipSnapshot: false }
         }
+        if (featureVersion.musicFile == supportedFeatures.musicFile) {
+          features.musicFile = { enabled: true }
+        }
         return features
       case 'desktop-app':
       default:
@@ -25,6 +28,9 @@ const handler: Omit<LX.Sync.ClientSyncHandlerActions<LX.Sync.Socket>, 'finished'
         }
         if (featureVersion.dislike == supportedFeatures.dislike) {
           features.dislike = { skipSnapshot: false }
+        }
+        if (featureVersion.musicFile == supportedFeatures.musicFile) {
+          features.musicFile = { enabled: true }
         }
         return features
     }

@@ -68,4 +68,5 @@ export const File = {
 export const FeaturesList = [
   'list',
   'dislike',
+  'musicFile',
 ] as const

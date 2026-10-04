@@ -42,6 +42,12 @@ export const hash = async(path: string, algorithm: HashAlgorithm) => FileSystem.
 
 export const readFile = async(path: string, encoding?: Encoding) => FileSystem.readFile(path, encoding)
 
+/**
+ * 从指定偏移读取一段文件内容（base64），用于分片传输大文件，
+ * 避免一次性把整个文件读进内存
+ */
+export const readFileSlice = async(path: string, offset: number, length: number): Promise<string> => RNFS.read(path, length, offset, 'base64')
+
 
 // export const copyFile = async(fromPath: string, toPath: string) => FileSystem.cp(fromPath, toPath)
 

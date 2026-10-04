@@ -21,6 +21,7 @@ declare global {
         moduleReadys: {
           list: boolean
           dislike: boolean
+          musicFile: boolean
         }
 
         onClose: (handler: (err: Error) => (void | Promise<void>)) => () => void
@@ -51,10 +52,14 @@ declare global {
       interface DislikeConfig {
         skipSnapshot: boolean
       }
+      interface MusicFileConfig {
+        enabled: boolean
+      }
       type ServerType = 'desktop-app' | 'server'
       interface EnabledFeatures {
         list?: false | ListConfig
         dislike?: false | DislikeConfig
+        musicFile?: false | MusicFileConfig
       }
       type SupportedFeatures = Partial<{ [k in keyof EnabledFeatures]: number }>
     }
