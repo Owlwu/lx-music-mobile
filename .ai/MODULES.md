@@ -117,10 +117,12 @@ Pattern (see ARCHITECTURE.md): `state.ts` (singleton), `action.ts` (mutate+emit)
 
 ### Core: Sync — `src/core/sync.ts` + `src/plugins/sync/`
 - `core/sync.ts`: status/mode UI glue (`selectSyncMode`, `setSyncStatus`).
-- `plugins/sync/client/`: `client.ts` (WebSocket + `message2call`), `auth.ts` (HTTP hello/id/auth, AES+RSA), `utils.ts` (encrypt/gzip), `modules/list/` + `modules/dislike/` (handshake + action mapping), `data.ts`.
+- `core/musicFileSync.ts`: local music **file** sync UI glue (compare/apply/cancel, progress → store).
+- `plugins/sync/client/`: `client.ts` (WebSocket + `message2call`), `auth.ts` (HTTP hello/id/auth, AES+RSA), `utils.ts` (encrypt/gzip), `modules/list/` + `modules/dislike/` (handshake + action mapping), `modules/musicFile/` (`diff.ts` shared pure rules, `localFs.ts` file IO, `service.ts` driver), `data.ts`.
 - Local bridge: `plugins/sync/listEvent.ts` / `dislikeEvent.ts` read/write local lists & forward to socket.
-- Constants: `plugins/sync/constants.ts` (sync codes, TRANS_MODE).
-- **Note**: syncs `list` + `dislike` features only; play history is NOT synced. Server URL is user-configured (no default). See API.md + RISKS.md.
+- Constants: `plugins/sync/constants.ts` (sync codes, TRANS_MODE, `FeaturesList`).
+- State: `store/sync/` (list/dislike status + mode modal), `store/musicFileSync/` (file-sync progress/plan).
+- **Note**: syncs `list` + `dislike` + `musicFile` features only; play history is NOT synced. Server URL is user-configured (no default). See API.md + RISKS.md.
 
 ### Core: User API — `src/core/userApi.ts` + `src/core/init/userApi/`
 - `userApi.ts`: import/remove/enable user-api scripts (`importUserApi`, `setUserApi`, `loadScript`).

@@ -13,7 +13,9 @@
 - "My lists" (default / love / temp / user lists), play history ("played list"), "play later" (temp) list, dislike list.
 - Multi-source "toggle source" fallback when a track cannot be resolved from its original source.
 - Custom API source ("user api") — user-supplied JS scripts executed natively to fetch music URLs / lyrics / pics.
-- Optional data sync over a self-hosted sync server (lists + dislike list).
+- Optional data sync over a self-hosted sync server (lists + dislike list), plus **local music file sync**:
+  pick folders under a configured music root and exchange the added/deleted audio files (with their `.lrc`)
+  with the paired PC, based on a per-device baseline.
 - Themes, i18n (zh-cn / zh-tw / en-us), font-size scaling, desktop-lyric mode, horizontal/vertical layouts.
 - Auto-update check (Android).
 
@@ -44,8 +46,8 @@
 
 ## Main directories (all under `src/`)
 - `config/` — settings model & defaults, constants, migration, global runtime object.
-- `core/` — **business logic, no React** (player, music, search, list, songlist, sync, userApi, apiSource, theme, version, `init/`).
-- `store/` — per-domain singleton state + actions + hooks (`setting`, `player`, `list`, `search`, `theme`, `sync`, `version`, `common`, `dislikeList`, `userApi`, `hotSearch`, `leaderboard`, `songlist`).
+- `core/` — **business logic, no React** (player, music, search, list, songlist, sync, musicFileSync, userApi, apiSource, theme, version, `init/`).
+- `store/` — per-domain singleton state + actions + hooks (`setting`, `player`, `list`, `search`, `theme`, `sync`, `musicFileSync`, `version`, `common`, `dislikeList`, `userApi`, `hotSearch`, `leaderboard`, `songlist`).
 - `event/` — emitter base + state/app/list/dislike event hubs.
 - `plugins/` — `player` (TrackPlayer wrapper), `sync` (client), `storage` (AsyncStorage wrapper).
 - `navigation/` — react-native-navigation setup, screen registry, screen push helpers, deep links.

@@ -20,7 +20,11 @@ Fragile / high-risk areas. Read this before touching player, sync, native, or st
 - `src/plugins/sync/` talks to a **user-hosted server** over HTTP + WebSocket (`message2call`). Protocol is in `modules/base/message2call.ts`; versioned constants in `constants.ts`. There is no in-repo server, so protocol changes need coordination.
 - Auth uses AES + RSA (credentials encrypted, server public key RSA-wrapped) — `auth.ts`. Mismatched key handling breaks auth silently.
 - Sync mutates local lists via `global.list_event`/`dislike_event`; a race between a local edit and a server push can drop or duplicate items.
-- Only `list` + `dislike` are synced; do not assume history is synced.
+- Features synced: `list`, `dislike`, **`musicFile`** (local music files + sibling `.lrc`); history is still not synced.
+- `musicFile` writes/deletes **real files** inside `sync.musicFile.root`. Every incoming path is validated by
+  `assertSafeRelPath` before being joined to the root — never bypass that check.
+- File-level tradeoffs (size-only equality, `.lrc` carried with its song, no resume, per-device baseline) are
+  listed in `lx-music-desktop/.ai/RISKS.md`; `diff.ts` must stay byte-identical to the desktop copy.
 
 ## 4. State / event system (cutting across the app)
 - The whole UI reactivity depends on `global.state_event` (async via `setImmediate`). Forgetting to emit after a state mutation = stale UI; emitting without a subscription = silent no-op.

@@ -52,16 +52,33 @@ User taps play (PlayerBar / PlayDetail / search row)
 3. `global.lx.apis[user_api_<id>] = { getMusicUrl, getLyric, getPic }`.
 4. When `common.apiSource` is `user_api_*`, `musicSdk.getMusicUrl`/`getLyric`/`getPic` for online sources delegate to that API.
 
-## 6. Sync (list + dislike)
+## 6. Sync (list + dislike + local music files)
 ```
-Settings Sync view → core/sync.ts
+Settings Sync view → core/sync.ts + core/musicFileSync.ts
   → plugins/sync/client (WebSocket) + auth.ts (HTTP hello/id/auth, AES+RSA)
   → on authed: modules/list + modules/dislike map local list_event/dislike_event
+  → modules/musicFile: manual, user-triggered file transfer (see below)
   → local read/write via core/list.ts + utils/data.ts
   → server round-trips via message2call RPC over the socket
 ```
-- Mode: manual/real-time; feature flags `list` / `dislike` (play history NOT synced).
+- Mode: manual/real-time; feature flags `list` / `dislike` / `musicFile` (play history NOT synced).
 - Server URL + auth key are user-configured (`storageDataPrefix.syncHost`/`syncAuthKey`); no built-in server. See API.md.
+
+### 6.1 Local music file sync flow
+```
+Settings → Sync → 本地音乐文件同步 (settings/Sync/MusicFileSync.tsx)
+  ├─ root folder: ChoosePath picker → setting `sync.musicFile.root`
+  ├─ scope: MusicFileScopeModal (folder tree) → setting `sync.musicFile.scope`
+  └─ MusicFileSyncModal → core/musicFileSync.ts
+        → plugins/sync/client/modules/musicFile/service.ts (driver)
+             ├─ localFs.ts  scan / chunked read-write / delete (+ sibling .lrc)
+             ├─ diff.ts     pure plan + action rules
+             └─ baseline    AsyncStorage `storageDataPrefix.musicFileSyncBaseline`
+        → peer RPC: musicFile_get_index / read_file / write_file / delete_file
+        → progress → store/musicFileSync (state+action+hook) → modal re-renders
+```
+- Change classification (added/deleted/conflict) compares both indexes against this device's baseline;
+  deletions are unchecked by default. Contract: `lx-music-desktop/doc/music-file-sync/本地音乐文件同步-设计.md`.
 
 ## Data layer (persistence)
 - K/V: `plugins/storage.ts` (AsyncStorage, chunked >500KB) ← `utils/data.ts` (in-memory cache + throttled writes) ← all core.

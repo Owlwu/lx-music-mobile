@@ -53,8 +53,21 @@ apis(source):
 - Client: `src/plugins/sync/` (`client/index.ts`, `modules/list`, `modules/dislike`, `modules/base`, `auth.ts`).
 - Transport: **HTTP** for `hello` → `id` → `auth` (credentials are AES-encrypted, server public key RSA-wrapped), then **WebSocket** for the RPC loop using `message2call` (`src/plugins/sync/utils.ts`).
 - Endpoint: user-configured host + port (`storageDataPrefix.syncHost`/`syncPort`), persisted host history. **No default/built-in server.**
-- Syncs only the `list` and `dislike` features (per `common.syncEnabled` + `common.syncList`/`common.syncDislike`), in `manual` or `realTime` mode (`common.syncMode`). Play history is **not** synced.
-- The server implementation itself is **not in this repo** (separate project). `[待确认: sync server repo / protocol version]`
+- Syncs the `list`, `dislike` and `musicFile` features. The server implementation itself is **not in this repo** (the PC app hosts it): `lx-music-desktop/src/main/modules/sync/server/`.
+
+## 4.1 Local music file sync (`musicFile` feature)
+- Client side: `src/plugins/sync/client/modules/musicFile/` (`diff.ts`, `localFs.ts`, `service.ts`, `handler.ts`).
+- Handshake only negotiates the feature (`featureVersion.musicFile = 1`, `FeaturesList` in `plugins/sync/constants.ts`);
+  no bytes move until the user starts a sync from the app UI.
+- RPC methods (both roles expose them, `message2call` over the encrypted WebSocket):
+  `musicFile_get_root`, `musicFile_get_index(scope)`, `musicFile_read_file(path, offset, size)`,
+  `musicFile_write_file(path, offset, data, isLast)`, `musicFile_delete_file(path, withLyric)`,
+  `musicFile_sync_finished`.
+- Paths are **relative to the configured `sync.musicFile.root`**, `/`-separated, validated by
+  `assertSafeRelPath`; chunks are `MUSIC_FILE_CHUNK_SIZE` (192 KiB) of base64.
+- Equality between the two devices is by **file size**; each device keeps its own baseline in
+  AsyncStorage (`storageDataPrefix.musicFileSyncBaseline`). Rules: `lx-music-desktop/doc/music-file-sync/本地音乐文件同步-设计.md`.
+- `diff.ts` is byte-identical to the PC copy — change both or neither.
 
 ## 5. Android auto-update
 - `src/core/version.ts` checks a remote manifest (version code) and surfaces an update prompt; actual download/install handled by the update flow. `[待确认: update manifest URL/keys]`
