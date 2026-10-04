@@ -40,9 +40,22 @@ declare namespace LX {
         eof: boolean
       }
 
+      interface FolderNode {
+        name: string
+        /** 相对同步根目录的路径 */
+        path: string
+        /** 当前文件夹内的音频数量 */
+        audioCount: number
+        /** 含子文件夹的音频总数 */
+        totalCount: number
+        children: FolderNode[]
+      }
+
       interface Config {
         /** 同步歌曲存放路径（本机绝对路径） */
         root: string
+        /** 已勾选的文件夹相对路径，空数组表示根目录全部 */
+        scope: string[]
       }
 
       interface CompareResult {

@@ -1,6 +1,7 @@
 import {
   assertSafeRelPath,
   buildIndex,
+  getRelDir,
   isAudioFileName,
   type FileIndex,
   type ScanEntry,
@@ -13,12 +14,21 @@ const MAX_SCAN_DEPTH = 32
 
 export const getRootPath = () => (settingState.setting['sync.musicFile.root'] ?? '').trim()
 
+export const getScope = (): string[] => settingState.setting['sync.musicFile.scope'] ?? []
+
 const trimEnd = (path: string) => path.replace(/\/+$/, '')
 
 /** 把协议的相对路径还原成本机绝对路径（含安全校验） */
 export const toAbsPath = (root: string, relPath: string) => {
   assertSafeRelPath(relPath)
   return `${trimEnd(root)}/${relPath}`
+}
+
+/** 该文件夹是否可能包含 scope 内的文件 */
+const dirAllowed = (relDir: string, scope: readonly string[]) => {
+  if (!scope.length) return true
+  if (!relDir.length) return true
+  return scope.some(folder => relDir === folder || relDir.startsWith(folder + '/') || folder.startsWith(relDir + '/'))
 }
 
 const readDirSafe = async(path: string) => {
@@ -29,8 +39,8 @@ const readDirSafe = async(path: string) => {
   }
 }
 
-/** 扫描根目录下所有文件夹里的音频文件 */
-export const scanEntries = async(root: string): Promise<ScanEntry[]> => {
+/** 扫描 scope 内所有文件夹下的音频文件 */
+export const scanEntries = async(root: string, scope: readonly string[] = getScope()): Promise<ScanEntry[]> => {
   const entries: ScanEntry[] = []
   const walk = async(absDir: string, relDir: string, depth: number) => {
     if (depth > MAX_SCAN_DEPTH) return
@@ -39,6 +49,7 @@ export const scanEntries = async(root: string): Promise<ScanEntry[]> => {
       const name = file.name
       const relPath = relDir.length ? `${relDir}/${name}` : name
       if (file.isDirectory) {
+        if (!dirAllowed(relPath, scope)) continue
         await walk(file.path, relPath, depth + 1)
         continue
       }
@@ -51,9 +62,33 @@ export const scanEntries = async(root: string): Promise<ScanEntry[]> => {
   return entries
 }
 
-export const scanIndex = async(root: string): Promise<FileIndex> => {
+export const scanIndex = async(root: string, scope: readonly string[] = getScope()): Promise<FileIndex> => {
   if (!root) throw new Error('未设置同步歌曲存放路径')
-  return buildIndex(await scanEntries(root))
+  return buildIndex(await scanEntries(root, scope))
+}
+
+/** 扫描根目录下的文件夹树，附带音频数量，用于同步范围选择 */
+export const scanFolderTree = async(root: string): Promise<LX.Sync.MusicFile.FolderNode[]> => {
+  const build = async(absDir: string, relDir: string): Promise<LX.Sync.MusicFile.FolderNode[]> => {
+    const files = await readDirSafe(absDir)
+    const nodes: LX.Sync.MusicFile.FolderNode[] = []
+    for (const file of files) {
+      if (!file.isDirectory) continue
+      const relPath = relDir.length ? `${relDir}/${file.name}` : file.name
+      const children = await build(file.path, relPath)
+      const own = (await readDirSafe(file.path)).filter(item => item.isFile && isAudioFileName(item.name)).length
+      nodes.push({
+        name: file.name,
+        path: relPath,
+        audioCount: own,
+        totalCount: own + children.reduce((sum, child) => sum + child.totalCount, 0),
+        children,
+      })
+    }
+    nodes.sort((a, b) => a.name.localeCompare(b.name))
+    return nodes
+  }
+  return build(root, '')
 }
 
 /** 读取一个 base64 分片 */
@@ -92,3 +127,5 @@ export const rootExists = async(root: string) => {
     return false
   }
 }
+
+export const relDirOf = getRelDir

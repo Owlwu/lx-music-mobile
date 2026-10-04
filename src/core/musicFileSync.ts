@@ -8,6 +8,8 @@ musicFileSync.setProgressListener((progress: LX.Sync.MusicFile.Progress) => {
 
 const errorMessage = (err: unknown) => (err as Error)?.message ?? String(err)
 
+export const getFolders = async() => musicFileSync.getFolders()
+
 /** 扫描两端并生成变更清单 */
 export const compare = async(): Promise<LX.Sync.MusicFile.CompareResult | null> => {
   musicFileSyncActions.setBusy(true)

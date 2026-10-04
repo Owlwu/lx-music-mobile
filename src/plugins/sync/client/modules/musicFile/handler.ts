@@ -12,9 +12,9 @@ const handler: LX.Sync.ClientSyncHandlerMusicFileActions<LX.Sync.Socket> = {
     return getRoot()
   },
 
-  async musicFile_get_index(socket) {
+  async musicFile_get_index(socket, scope) {
     assertReady(socket)
-    return getIndex()
+    return getIndex(scope)
   },
 
   async musicFile_read_file(socket, path, offset, size) {

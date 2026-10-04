@@ -10,7 +10,7 @@ declare namespace LX {
      */
     interface MusicFilePeerActions {
       musicFile_get_root: () => string
-      musicFile_get_index: () => LX.Sync.MusicFile.FileIndex
+      musicFile_get_index: (scope: string[]) => LX.Sync.MusicFile.FileIndex
       musicFile_read_file: (path: string, offset: number, size: number) => LX.Sync.MusicFile.ReadFileResult
       musicFile_write_file: (path: string, offset: number, data: string, isLast: boolean) => void
     }

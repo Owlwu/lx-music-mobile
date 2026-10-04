@@ -84,6 +84,30 @@ export const assertSafeRelPath = (relPath: string) => {
   return relPath
 }
 
+/** 取相对路径所在的文件夹（根目录下为 ''） */
+export const getRelDir = (relPath: string) => {
+  const index = relPath.lastIndexOf('/')
+  return index === -1 ? '' : relPath.substring(0, index)
+}
+
+/** scope 为空表示根目录全部；否则文件所在文件夹必须等于或位于某个已选文件夹之下 */
+export const isPathInScope = (relPath: string, scope: readonly string[]) => {
+  if (!scope.length) return true
+  const dir = getRelDir(relPath)
+  return scope.some(folder => dir === folder || dir.startsWith(folder + '/'))
+}
+
+/** 勾选某文件夹时，其所有子文件夹也一并纳入（用于 UI 树与结果展示） */
+export const normalizeScope = (scope: readonly string[]) => {
+  const list = Array.from(new Set(scope.map(normalizeRelPath).filter(folder => folder.length && isSafeRelPath(folder))))
+  const result: string[] = []
+  for (const folder of list.sort()) {
+    if (result.some(parent => folder === parent || folder.startsWith(parent + '/'))) continue
+    result.push(folder)
+  }
+  return result
+}
+
 /**
  * 由扫描结果构建索引：只保留音频文件。
  * 传入的 `entries` 是目录下所有文件的原始列表。
@@ -98,7 +122,7 @@ export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
       size: entry.size,
       mtime: entry.mtime,
     })
-    const dir = relDirOfPath(entry.path)
+    const dir = getRelDir(entry.path)
     if (!dir.length) continue
     for (const folder of [dir, ...parentsOf(dir)]) folderSet.add(folder)
   }
@@ -170,11 +194,6 @@ export const buildActions = (
     }
   }
   return actions
-}
-
-const relDirOfPath = (relPath: string) => {
-  const index = relPath.lastIndexOf('/')
-  return index === -1 ? '' : relPath.substring(0, index)
 }
 
 const parentsOf = (dir: string) => {
