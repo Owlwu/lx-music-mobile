@@ -12,6 +12,22 @@ import { exitApp, tipDialog } from '@/utils/tools'
 const primitiveType = ['string', 'boolean', 'number']
 const checkPrimitiveType = (val: any): boolean => val === null || primitiveType.includes(typeof val)
 
+/** 数组与普通对象视为可深比较的复合值 */
+const isPlainValue = (val: any) => Array.isArray(val) || (typeof val === 'object' && val !== null)
+
+/** 设置项等值判断：基本类型直接比，数组/对象按键序无关的方式深比较 */
+const isEqualSettingValue = (a: any, b: any): boolean => {
+  if (a === b) return true
+  if (checkPrimitiveType(a) || checkPrimitiveType(b)) return false
+  if (!isPlainValue(a) || !isPlainValue(b)) return false
+  // 设置项都是纯数据（无函数/循环引用），序列化比较即可
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
+
 const mergeSetting = (originSetting: LX.AppSetting, targetSetting?: Partial<LX.AppSetting> | null): {
   setting: LX.AppSetting
   updatedSettingKeys: Array<keyof LX.AppSetting>
@@ -26,34 +42,17 @@ const mergeSetting = (originSetting: LX.AppSetting, targetSetting?: Partial<LX.A
     const originSettingKeys = Object.keys(originSettingCopy)
     const targetSettingKeys = Object.keys(targetSetting)
 
-    if (originSettingKeys.length > targetSettingKeys.length) {
-      for (const key of targetSettingKeys as Array<keyof LX.AppSetting>) {
-        const targetValue: any = targetSetting[key]
-        const isPrimitive = checkPrimitiveType(targetValue)
-        // if (checkPrimitiveType(value)) {
-        if (!isPrimitive || targetValue == originSettingCopy[key] || originSettingCopy[key] === undefined) continue
-        updatedSettingKeys.push(key)
-        updatedSetting[key] = targetValue
-        // @ts-expect-error
-        originSettingCopy[key] = targetValue
-        // } else {
-        //   if (!isPrimitive && currentValue != undefined) handleMergeSetting(value, currentValue)
-        // }
-      }
-    } else {
-      for (const key of originSettingKeys as Array<keyof LX.AppSetting>) {
-        const targetValue: any = targetSetting[key]
-        const isPrimitive = checkPrimitiveType(targetValue)
-        // if (checkPrimitiveType(value)) {
-        if (!isPrimitive || targetValue == originSettingCopy[key]) continue
-        updatedSettingKeys.push(key)
-        updatedSetting[key] = targetValue
-        // @ts-expect-error
-        originSettingCopy[key] = targetValue
-        // } else {
-        //   if (!isPrimitive && currentValue != undefined) handleMergeSetting(value, currentValue)
-        // }
-      }
+    // 只为「目标里确实带了值」的键做合并；判断是否变更必须走深比较，
+    // 否则 sync.musicFile.scope 这类数组/对象设置会被整条丢弃（永远存不下来）。
+    const keys = (originSettingKeys.length > targetSettingKeys.length ? targetSettingKeys : originSettingKeys) as Array<keyof LX.AppSetting>
+    for (const key of keys) {
+      const targetValue: any = targetSetting[key]
+      if (targetValue === undefined) continue
+      if (isEqualSettingValue(targetValue, originSettingCopy[key])) continue
+      updatedSettingKeys.push(key)
+      updatedSetting[key] = targetValue
+      // @ts-expect-error
+      originSettingCopy[key] = targetValue
     }
   }
 
