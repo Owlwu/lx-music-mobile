@@ -49,7 +49,7 @@ export const readFile = async(path: string, encoding?: Encoding) => FileSystem.r
 export const readFileSlice = async(path: string, offset: number, length: number): Promise<string> => RNFS.read(path, length, offset, 'base64')
 
 
-// export const copyFile = async(fromPath: string, toPath: string) => FileSystem.cp(fromPath, toPath)
+export const copyFile = async(fromPath: string, toPath: string) => FileSystem.cp(fromPath, toPath)
 
 export const moveFile = async(fromPath: string, toPath: string) => FileSystem.mv(fromPath, toPath)
 export const gzipFile = async(fromPath: string, toPath: string) => FileSystem.gzipFile(fromPath, toPath)
