@@ -9,6 +9,7 @@ import {
 import * as localFs from './localFs'
 import { getSocket } from '../../client'
 import { getMusicFileSyncBaseline, saveMusicFileSyncBaseline } from '@/utils/data'
+import log from './logger'
 
 /** 本地音乐文件同步只需要这几个远端方法 */
 interface MusicFilePeer {
@@ -67,6 +68,9 @@ const requirePeer = async() => {
   return { peer: socket.remote as MusicFilePeer, root, scope: normalizeScope(localFs.getScope()) }
 }
 
+/** 两端的诊断日志都带上根目录与 scope，便于直接对照 */
+const describeSide = (root: string, scope: readonly string[]) => `root=${root} scope=${JSON.stringify(scope)}`
+
 export const getFolders = async() => {
   const root = localFs.getRootPath()
   if (!root) throw new Error('未设置同步歌曲存放路径')
@@ -81,12 +85,16 @@ export const compare = async(): Promise<LX.Sync.MusicFile.CompareResult> => {
   running = true
   updateProgress({ ...createProgress(), running: true, stage: 'comparing', message: '正在扫描本地文件…' })
   try {
+    log.info('compare', `start role=initiator local(${describeSide(root, scope)})`)
     const localIndex = await localFs.scanIndex(root, scope)
     updateProgress({ message: '正在读取对端文件列表…' })
     const remoteRoot = await peer.musicFile_get_root()
     if (!remoteRoot) throw new Error('对端未设置同步歌曲存放路径')
     const remoteIndex = await peer.musicFile_get_index(scope)
-    const plan = buildPlan(localIndex, remoteIndex, await getMusicFileSyncBaseline())
+    log.info('compare', `remote(${describeSide(remoteRoot, scope)}) folders=${remoteIndex.folders.length} files=${remoteIndex.files.length}`)
+    const baseline = await getMusicFileSyncBaseline()
+    const plan = buildPlan(localIndex, remoteIndex, baseline)
+    log.info('compare', `plan ${JSON.stringify(Object.fromEntries(Object.entries(plan).map(([k, v]) => [k, v.length])))} baseline=${baseline.length} localFiles=${localIndex.files.length} remoteFiles=${remoteIndex.files.length}`)
     return {
       plan,
       localRoot: root,
@@ -100,6 +108,7 @@ export const compare = async(): Promise<LX.Sync.MusicFile.CompareResult> => {
 }
 
 const transferDownloadFile = async(peer: MusicFilePeer, root: string, relPath: string, onBytes: (bytes: number) => void) => {
+  log.info('transfer', `download start relPath=${relPath} -> localRoot=${root}`)
   let offset = 0
   for (;;) {
     if (cancelled) throw new Error('已取消')
@@ -110,9 +119,11 @@ const transferDownloadFile = async(peer: MusicFilePeer, root: string, relPath: s
     onBytes(size)
     if (chunk.eof || !size) break
   }
+  log.info('transfer', `download done relPath=${relPath} bytes=${offset}`)
 }
 
 const transferUploadFile = async(peer: MusicFilePeer, root: string, relPath: string, onBytes: (bytes: number) => void) => {
+  log.info('transfer', `upload start relPath=${relPath} from localRoot=${root}`)
   let offset = 0
   for (;;) {
     if (cancelled) throw new Error('已取消')
@@ -123,6 +134,7 @@ const transferUploadFile = async(peer: MusicFilePeer, root: string, relPath: str
     onBytes(size)
     if (chunk.eof || !size) break
   }
+  log.info('transfer', `upload done relPath=${relPath} bytes=${offset}`)
 }
 
 /** base64 字符串对应的原始字节数（android 端的 base64 不带换行） */
@@ -152,12 +164,15 @@ export const apply = async(selection: LX.Sync.MusicFile.Selection): Promise<LX.S
   const result: LX.Sync.MusicFile.ApplyResult = { downloaded: 0, uploaded: 0, deletedLocal: 0, deletedRemote: 0, errors: [] }
   try {
     updateProgress({ ...createProgress(), running: true, stage: 'comparing', message: '正在重新核对文件列表…' })
+    log.info('apply', `start role=initiator local(${describeSide(root, scope)}) checked=${Object.keys(selection.checked ?? {}).length}`)
     const localIndex = await localFs.scanIndex(root, scope)
     const remoteRoot = await peer.musicFile_get_root()
     if (!remoteRoot) throw new Error('对端未设置同步歌曲存放路径')
     const remoteIndex = await peer.musicFile_get_index(scope)
+    log.info('apply', `remote(${describeSide(remoteRoot, scope)}) folders=${remoteIndex.folders.length} files=${remoteIndex.files.length}`)
     const plan = buildPlan(localIndex, remoteIndex, await getMusicFileSyncBaseline())
     const actions = buildActions(plan, selection.checked, selection.direction)
+    log.info('apply', `actions=${actions.length} ${JSON.stringify(actions.map(a => `${a.kind}:${a.path}`).slice(0, 30))}`)
     const localLyricSizes = buildLyricSizeMap(localIndex)
     const remoteLyricSizes = buildLyricSizeMap(remoteIndex)
     const totalBytes = actions.reduce((sum, action) => {
@@ -218,6 +233,8 @@ export const apply = async(selection: LX.Sync.MusicFile.Selection): Promise<LX.S
         }
       } catch (err: any) {
         if (cancelled) throw err
+        // 记录失败动作的类型与目标，便于判断是“本地读”还是“远端读”出的问题
+        log.err('apply', `action failed kind=${action.kind} path=${action.path} localRoot=${root} remoteRoot=${remoteRoot} err=${err?.message ?? err}`)
         result.errors.push(`${action.path}: ${err?.message ?? err}`)
         updateProgress({ errors: [...result.errors] })
       }
@@ -227,6 +244,7 @@ export const apply = async(selection: LX.Sync.MusicFile.Selection): Promise<LX.S
     const finalLocal = await localFs.scanIndex(root, scope)
     const finalRemote = await peer.musicFile_get_index(scope)
     await saveMusicFileSyncBaseline(buildBaseline(finalLocal, finalRemote))
+    log.info('apply', `done downloaded=${result.downloaded} uploaded=${result.uploaded} deletedLocal=${result.deletedLocal} deletedRemote=${result.deletedRemote} errors=${result.errors.length}`)
 
     updateProgress({
       running: false,
@@ -240,6 +258,8 @@ export const apply = async(selection: LX.Sync.MusicFile.Selection): Promise<LX.S
     running = false
     // 出现意外异常时也要让界面上的进度条停下来
     if (progress.running) updateProgress({ running: false, stage: 'error' })
+    // 大文件读取会在缓存目录留一份临时副本，同步结束就清掉
+    await localFs.releaseReadCache()
   }
 }
 
@@ -253,17 +273,27 @@ export const cancel = () => {
 export const getRoot = () => localFs.getRootPath()
 
 /** 协议：按 scope 扫描本机索引 */
-export const getIndex = async(scope: string[]) => localFs.scanIndex(localFs.getRootPath(), normalizeScope(scope ?? []))
+export const getIndex = async(scope: string[]) => {
+  const root = localFs.getRootPath()
+  log.info('rpc', `getIndex called by peer localRoot=${root} scope=${JSON.stringify(scope ?? [])}`)
+  return localFs.scanIndex(root, normalizeScope(scope ?? []))
+}
 
 /** 协议：读取本机文件分片 */
-export const readChunk = async(relPath: string, offset: number, size: number) => localFs.readFileChunk(localFs.getRootPath(), relPath, offset, size)
+export const readChunk = async(relPath: string, offset: number, size: number) => {
+  // 对端请求读取本机文件：这条日志能直接回答“到底是谁在找哪个文件”
+  log.info('rpc', `readChunk called by peer relPath=${relPath} offset=${offset} size=${size} localRoot=${localFs.getRootPath()}`)
+  return localFs.readFileChunk(localFs.getRootPath(), relPath, offset, size)
+}
 
 /** 协议：写入本机文件分片 */
 export const writeChunk = async(relPath: string, offset: number, data: string, isLast: boolean) => {
+  log.info('rpc', `writeChunk called by peer relPath=${relPath} offset=${offset} isLast=${isLast} localRoot=${localFs.getRootPath()}`)
   await localFs.writeFileChunk(localFs.getRootPath(), relPath, offset, data, isLast)
 }
 
 /** 协议：删除本机文件 */
 export const removeFile = async(relPath: string, withLyric: boolean) => {
+  log.info('rpc', `deleteFile called by peer relPath=${relPath} withLyric=${withLyric} localRoot=${localFs.getRootPath()}`)
   await localFs.deleteFileWithLyric(localFs.getRootPath(), relPath, withLyric)
 }
