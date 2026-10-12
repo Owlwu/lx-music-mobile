@@ -28,6 +28,11 @@ export interface FileItem {
   path: string
   size: number
   mtime: number
+  /**
+   * 内容签名（见 `buildSignature`）。对端版本较旧或取样失败时为 undefined，
+   * 此时该文件退回「只比 size」的旧判定。
+   */
+  sig?: string
   /** 同目录同名的 .lrc 文件信息，不存在时为 null */
   lyric: LyricItem | null
 }
@@ -48,6 +53,8 @@ export interface PlanItem {
   remoteHasLyric: boolean
   defaultChecked: boolean
   defaultDirection: TransferDirection
+  /** conflict 专用：true 表示两端字节数相同、只是内容不同（否则是大小不同） */
+  sameSize?: boolean
 }
 
 export type TransferDirection = 'push' | 'pull'
@@ -59,6 +66,8 @@ export interface ScanEntry {
   path: string
   size: number
   mtime: number
+  /** 音频文件的内容签名（见 `buildSignature`）；歌词文件不需要 */
+  sig?: string
 }
 
 export type TransferAction =
@@ -86,6 +95,65 @@ export const getLyricFileName = (name: string) => {
 export const getLyricRelPath = (relPath: string) => {
   const index = relPath.lastIndexOf('.')
   return (index > 0 ? relPath.substring(0, index) : relPath) + '.' + LYRIC_EXTENSION
+}
+
+/**
+ * 内容签名：用于发现「字节数相同但内容不同」的文件
+ *
+ * 只用 size 判断相等性时，任何**保持字节数**的改动都发现不了。最典型的就是把
+ * 加密/混淆过的音频原地解密还原：XOR 类解密前后字节数完全一致，两端会一直认为
+ * 「已同步」，于是对端永远拿不到正常文件，表现为「扫描并比较 → 两端一致，
+ * 无需同步」但手机上仍然解析失败。
+ *
+ * 所以扫描时额外取文件「首段 + 尾段」算一个廉价的 64 位签名：
+ *
+ *   payload = ascii(`mf1:${size}:`) + 首段字节 + 尾段字节
+ *   sig     = fnv1a32(payload) 与 djb2_32(payload) 各 32 位，拼成 16 位十六进制
+ *
+ * 契约（两端必须完全一致）：
+ * - 取样范围见 `getSignatureRanges`：首尾各 4096 字节；文件更小时取整文件，首尾不重叠。
+ * - 签名是「内容是否变化」的探测器，不是安全校验；对端没给签名时退回只比 size。
+ * - 布局变化（版本号 `mf1` 变化）会让两端签名整体失配，因此变更时必须同步升级两端。
+ */
+export const SIGNATURE_SAMPLE_BYTES = 4096
+
+/** 取样范围：head 从 0 开始，tail 与 head 不重叠 */
+export const getSignatureRanges = (size: number) => {
+  const headLength = Math.max(0, Math.min(SIGNATURE_SAMPLE_BYTES, size))
+  const tailOffset = Math.max(headLength, size - SIGNATURE_SAMPLE_BYTES)
+  const tailLength = Math.max(0, size - tailOffset)
+  return { headLength, tailOffset, tailLength }
+}
+
+const SIG_A_OFFSET = 0x811c9dc5
+const SIG_A_PRIME = 16777619
+const SIG_B_OFFSET = 5381
+const SIG_B_PRIME = 33
+
+const hex32 = (value: number) => (value >>> 0).toString(16).padStart(8, '0')
+
+/** 只处理 ASCII 前缀，避免依赖 TextEncoder（RN 上不保证存在） */
+const asciiBytes = (text: string) => {
+  const bytes = new Uint8Array(text.length)
+  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff
+  return bytes
+}
+
+/** 由大小 + 首段 + 尾段字节算出内容签名；同一份内容在任何一端都得到同一个值 */
+export const buildSignature = (size: number, head: Uint8Array, tail: Uint8Array): string => {
+  let a = SIG_A_OFFSET >>> 0
+  let b = SIG_B_OFFSET >>> 0
+  const push = (bytes: Uint8Array) => {
+    for (let i = 0; i < bytes.length; i++) {
+      const value = bytes[i]
+      a = Math.imul(a ^ value, SIG_A_PRIME) >>> 0
+      b = (Math.imul(b, SIG_B_PRIME) + value) >>> 0
+    }
+  }
+  push(asciiBytes(`mf1:${size}:`))
+  push(head)
+  push(tail)
+  return hex32(a) + hex32(b)
 }
 
 /** 统一分隔符并去掉多余的前导 `./` */
@@ -378,6 +446,7 @@ export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
       path: entry.path,
       size: entry.size,
       mtime: entry.mtime,
+      sig: entry.sig,
       lyric: lyricMap.get(getLyricRelPath(entry.path)) ?? null,
     })
     const dir = getRelDir(entry.path)
@@ -423,7 +492,13 @@ export const getDefaultDirection = (group: FileGroupKey): TransferDirection => {
 }
 
 /**
- * 按契约 1.2 分类变更。size 相同即视为内容一致（mtime 不参与判断）。
+ * 按契约 1.2 分类变更。
+ *
+ * 相等性判定（mtime 始终不参与）：
+ * - size 不同 → 内容不同；
+ * - size 相同、且两端都带内容签名 → 再比签名，签名不同视为内容不同
+ *   （发现「字节数相同但内容不同」，例如原地解密过的音频）；
+ * - 任一端没有签名（旧版本对端、或取样失败）→ 退回只比 size 的旧行为。
  */
 export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baseline: readonly string[]): PlanGroups => {
   const local = indexMap(localIndex)
@@ -438,8 +513,15 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
     const inBaseline = baselineSet.has(path)
 
     let group: FileGroupKey
+    let sameSize = false
     if (localFile && remoteFile) {
-      if (localFile.size === remoteFile.size) continue
+      if (localFile.size === remoteFile.size) {
+        const localSig = localFile.sig
+        const remoteSig = remoteFile.sig
+        // 两端都有签名时才做内容比对；签名一致 = 内容一致
+        if (!localSig || !remoteSig || localSig === remoteSig) continue
+        sameSize = true
+      }
       group = 'conflict'
     } else if (localFile) {
       group = inBaseline ? 'remoteDeleted' : 'localAdded'
@@ -456,6 +538,7 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
       remoteHasLyric: remoteFile?.lyric != null,
       defaultChecked: getDefaultChecked(group),
       defaultDirection: getDefaultDirection(group),
+      sameSize: group === 'conflict' ? sameSize : undefined,
     })
   }
 

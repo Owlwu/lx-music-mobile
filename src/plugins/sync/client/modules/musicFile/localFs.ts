@@ -1,9 +1,11 @@
 import {
   assertSafeRelPath,
   buildIndex,
+  buildSignature,
   canonicalizeRelPath,
   getLyricRelPath,
   getRelDir,
+  getSignatureRanges,
   isAudioFileName,
   isLyricFileName,
   shortenRelPath,
@@ -101,6 +103,27 @@ const readDirSafe = async(path: string) => {
   }
 }
 
+/**
+ * 读取首尾各 `SIGNATURE_SAMPLE_BYTES` 字节算内容签名（取样范围见 `getSignatureRanges`）。
+ *
+ * 目的：发现「字节数相同但内容不同」的文件（例如把加密/混淆过的音频原地解密后
+ * 字节数完全没变），这类文件只看 size 会被永远判为「已同步」。
+ * 取样失败（例如路径里含 `%` 时 RNFS.read 会报 Invalid file path）时返回 undefined，
+ * 该文件退回只比 size 的旧判定，不影响同步可用性。
+ */
+const readFileSignature = async(absPath: string, size: number): Promise<string | undefined> => {
+  const { headLength, tailOffset, tailLength } = getSignatureRanges(size)
+  if (!headLength && !tailLength) return undefined
+  try {
+    const head = headLength ? Buffer.from(await readFileSlice(absPath, 0, headLength), 'base64') : new Uint8Array()
+    const tail = tailLength ? Buffer.from(await readFileSlice(absPath, tailOffset, tailLength), 'base64') : new Uint8Array()
+    return buildSignature(size, head, tail)
+  } catch (err: any) {
+    log.warn('scan', `signature failed path=${absPath} err=${err?.message ?? err}`)
+    return undefined
+  }
+}
+
 /** 扫描 scope 内所有文件夹下的音频与歌词文件 */
 export const scanEntries = async(root: string, scope: readonly string[] = getScope()): Promise<ScanEntry[]> => {
   const entries: ScanEntry[] = []
@@ -116,8 +139,13 @@ export const scanEntries = async(root: string, scope: readonly string[] = getSco
         continue
       }
       if (!file.isFile) continue
-      if (!isAudioFileName(name) && !isLyricFileName(name)) continue
-      entries.push({ path: relPath, size: file.size ?? 0, mtime: file.lastModified ?? 0 })
+      const isAudio = isAudioFileName(name)
+      if (!isAudio && !isLyricFileName(name)) continue
+      const size = file.size ?? 0
+      const entry: ScanEntry = { path: relPath, size, mtime: file.lastModified ?? 0 }
+      // 音频才算内容签名：歌词是伴生文件，不参与内容比对
+      if (isAudio) entry.sig = await readFileSignature(file.path, size)
+      entries.push(entry)
     }
   }
   await walk(root, '', 0)

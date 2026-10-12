@@ -23,8 +23,12 @@ Fragile / high-risk areas. Read this before touching player, sync, native, or st
 - Features synced: `list`, `dislike`, **`musicFile`** (local music files + sibling `.lrc`); history is still not synced.
 - `musicFile` writes/deletes **real files** inside `sync.musicFile.root`. Every incoming path is validated by
   `assertSafeRelPath` before being joined to the root — never bypass that check.
-- File-level tradeoffs (size-only equality, `.lrc` carried with its song, no resume, per-device baseline) are
-  listed in `lx-music-desktop/.ai/RISKS.md`; `diff.ts` must stay byte-identical to the desktop copy.
+- File-level tradeoffs (size + content-signature equality, `.lrc` carried with its song, no resume, per-device
+  baseline) are listed in `lx-music-desktop/.ai/RISKS.md`; `diff.ts` must stay byte-identical to the desktop copy.
+- The content signature is computed in `localFs.scanEntries` (`readFileSignature` → `readFileSlice` head+tail);
+  when `RNFS.read` cannot open a path (e.g. names containing `%`), that file silently loses its signature and
+  falls back to the size-only rule — check the `[musicFileSync][WARN][scan] signature failed` lines if a
+  same-size content change is not detected.
 
 ## 4. State / event system (cutting across the app)
 - The whole UI reactivity depends on `global.state_event` (async via `setImmediate`). Forgetting to emit after a state mutation = stale UI; emitting without a subscription = silent no-op.

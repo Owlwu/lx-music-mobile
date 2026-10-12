@@ -84,6 +84,26 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
     })
   }, [plan])
 
+  /**
+   * 冲突组批量指定方向，并顺手勾选该组。
+   *
+   * 冲突默认方向是「以远端为准」，而「字节数相同、内容不同」这类冲突里往往是本地
+   * 才正确；逐条点几十次不现实，所以给整组一个入口。
+   */
+  const setGroupDirection = useCallback((key: LX.Sync.MusicFile.FileGroupKey, value: LX.Sync.MusicFile.TransferDirection) => {
+    const items = plan?.[key] ?? []
+    setChecked(prev => {
+      const next = { ...prev }
+      for (const item of items) next[selectionKey(item)] = true
+      return next
+    })
+    setDirection(prev => {
+      const next = { ...prev }
+      for (const item of items) next[selectionKey(item)] = value
+      return next
+    })
+  }, [plan])
+
   const groups = useMemo(() => {
     if (!plan) return []
     return GROUP_KEYS
@@ -133,11 +153,31 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
                       <Text style={styles.summary} size={12} color={theme['c-font-label']}>{t('setting_sync_music_file_plan_summary', { count: totalChanges })}</Text>
                       {groups.map(group => (
                         <View key={group.key} style={styles.group}>
-                          <CheckBox
-                            check={group.items.every(item => checked[selectionKey(item)])}
-                            label={`${t(GROUP_TITLE_KEYS[group.key])} (${group.items.length})`}
-                            onChange={check => { setGroupChecked(group.key, check) }}
-                          />
+                          <View style={styles.groupHeader}>
+                            <CheckBox
+                              check={group.items.every(item => checked[selectionKey(item)])}
+                              label={`${t(GROUP_TITLE_KEYS[group.key])} (${group.items.length})`}
+                              onChange={check => { setGroupChecked(group.key, check) }}
+                            />
+                            {group.key === 'conflict'
+                              ? (
+                                  <View style={styles.groupActions}>
+                                    <TouchableOpacity
+                                      style={{ ...styles.dirBtn, borderColor: theme['c-border-background'] }}
+                                      onPress={() => { setGroupDirection(group.key, 'push') }}
+                                    >
+                                      <Text size={11}>{t('setting_sync_music_file_use_local_all')}</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      style={{ ...styles.dirBtn, borderColor: theme['c-border-background'] }}
+                                      onPress={() => { setGroupDirection(group.key, 'pull') }}
+                                    >
+                                      <Text size={11}>{t('setting_sync_music_file_use_remote_all')}</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                )
+                              : null}
+                          </View>
                           {group.items.map(item => (
                             <View key={item.path} style={styles.item}>
                               <CheckBox
@@ -148,6 +188,7 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
                                   <Text size={12} numberOfLines={2}>{item.path}</Text>
                                   <Text size={11} color={theme['c-font-label']}>
                                     {[
+                                      item.sameSize ? t('setting_sync_music_file_content_diff') : '',
                                       item.localSize != null ? `${t('setting_sync_music_file_local')} ${sizeFormate(item.localSize)}` : '',
                                       item.remoteSize != null ? `${t('setting_sync_music_file_remote')} ${sizeFormate(item.remoteSize)}` : '',
                                       item.localHasLyric || item.remoteHasLyric ? t('setting_sync_music_file_has_lyric') : '',
@@ -184,7 +225,7 @@ export default forwardRef<MusicFileSyncModalType>((_props, ref) => {
           : null}
       </ScrollView>
     )
-  }, [error, remoteRoot, remoteDeviceName, progress.running, progress.message, progressText, progressPercent, plan, totalChanges, groups, checked, direction, setGroupChecked, t, theme])
+  }, [error, remoteRoot, remoteDeviceName, progress.running, progress.message, progressText, progressPercent, plan, totalChanges, groups, checked, direction, setGroupChecked, setGroupDirection, t, theme])
 
   return (
     visible
@@ -233,6 +274,15 @@ const styles = createStyle({
   },
   group: {
     marginBottom: 10,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  groupActions: {
+    flexDirection: 'row',
   },
   item: {
     paddingLeft: 20,

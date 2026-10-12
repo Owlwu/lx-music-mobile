@@ -15,6 +15,11 @@ declare namespace LX {
         path: string
         size: number
         mtime: number
+        /**
+         * 内容签名（首尾各取 4096 字节算出，见 `diff.ts` 的 `buildSignature`）。
+         * 用于发现「字节数相同但内容不同」的文件；对端版本较旧或取样失败时为空。
+         */
+        sig?: string
         /** 同目录同名的 .lrc，不存在时为 null */
         lyric: LyricItem | null
       }
@@ -37,6 +42,8 @@ declare namespace LX {
         remoteHasLyric: boolean
         defaultChecked: boolean
         defaultDirection: TransferDirection
+        /** conflict 专用：true 表示两端字节数相同、只是内容不同（否则是大小不同） */
+        sameSize?: boolean
       }
 
       type PlanGroups = Record<FileGroupKey, PlanItem[]>
