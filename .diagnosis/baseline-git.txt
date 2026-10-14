@@ -1,0 +1,65 @@
+# verifier 基线记录（改动前）
+
+> **重要方法论说明**：verifier 的 `pwsh` 完全不可用（见 `baseline-tooling-probe.txt`），
+> **无法执行 `git diff` / `git stash`**。因此本基线由 `read` 工具逐文件抓取**改动前原文**，
+> 作为后续逻辑回归审查的唯一对照物。以下 digest 由 verifier **手工计算**（对读取到的原文
+> 逐行核对行号与内容），不是 shell 计算，仅供定位，不作为密码学证明。
+
+## 采集时刻
+- 采集时机：task-2 仍为 `in_progress`（owner: logcore），task-3/4/5 仍为 `pending`。
+- 即：**在 T3 触碰播放链路之前采集完成**，基线未受 T3 污染。
+- 但 task-1 的 `.diagnosis/evidence.md` 尚未产出，`src/utils/runtimeLog.ts` /
+  `src/utils/stallWatchdog.ts` 尚不存在 → **T2 尚未落盘**，基线干净。
+
+## 基线文件清单（T3 写入范围全覆盖）
+
+| 文件 | 基线总行数 | 关键基线锚点（改动后必须仍然存在） |
+|---|---|---|
+| `src/plugins/player/index.ts` | 71 | L26 `if (global.lx.playerStatus.isIniting \|\| global.lx.playerStatus.isInitialized) return`；L28 `console.log('Cache Size', cacheSize * 1024)`；L30-37 `TrackPlayer.setupPlayer({...})`；L38-42 初始化收尾 |
+| `src/plugins/player/utils.ts` | 319 | L13-17 `isEmpty`/`isTempId`；L153-155 `setResource`；L157-170 播放原语；L187-199 `migratePlayerCache`；L209-242 `onStateChange`；L251-292 `updateOptions` |
+| `src/plugins/player/service.ts` | 214 | L28 `if (isInitialized) return`；L30 `console.log('reg services...')`；L69-73 `PlaybackError` 处理器；L79-112 `PlaybackState` 处理器（L80 守卫、L83-107 switch、L108 `isPlayedStop` 守卫）；L113-176 `PlaybackTrackChanged`；L209-213 default 导出 |
+| `src/core/music/utils.ts` | 509 | L232-281 `getOnlineOtherSourceMusicUrl`（L249 while 循环、L276-280 catch 递归降级）；L286-329 `handleGetOnlineMusicUrl`（L310-328 catch 切源） |
+| `src/core/player/player.ts` | 672 | L97-134 `getMusicPlayUrl`（L100 `addLoadTimeout()`、L105-118 toggle 回退、L118-121 出口守卫、L122-133 catch 重试链）；L136-155 `setMusicUrl`；L415-509 `playNext`；L514-596 `playPrev`；L601-608 `play` |
+| `src/core/player/utils.ts` | 133 | L8-103 `filterMusicList`；L108-132 `filterList`（L127-130 空列表回退 `clearPlayedList`） |
+| `src/core/init/player/playStatus.ts` | 82 | L19-23 `setButtons`；L31-42 `handlePlay`/`handlePause`；L67-69 事件订阅 |
+| `src/core/init/player/playProgress.ts` | 181 | L13-20 `delaySavePlayInfo`；L29-40 `getCurrentTime`；L41-57 `getMaxTime`；L64-71 `startUpdateTimeout`；L85-112 事件处理器 |
+| `src/core/init/player/preloadNextMusic.ts` | 67 | L18-36 `preloadNextMusicUrl`（L19 守卫、L28 `Promise.all`、L29-32 刷新）；L38-67 default 导出 |
+| `src/core/init/player/playerEvent.ts` | 138 | L16-35 `startLoadingTimeout`（L27-33 双分支、L34 `25000`）；L49-58 `addDelayNextTimeout`；L89-115 `handleError`（L93 `retryNum < 2`、L106-114 分支）；L117-122 `handleSetPlayInfo` |
+| `src/utils/errorHandle.ts` | 42 | L7-33 `errorHandler`（L11-31 致命分支、L12-13 排除名单 toast 分支、L15-29 **Alert.alert** 分支、L32 `log.error(e.stack)`）；L35-42 注册（L36 `setJSExceptionHandler`、L38-41 `setNativeExceptionHandler`） |
+| `src/utils/log.ts` | 121 | L4 `logPath`；L6-23 `logTools`（L8-11 `writeLog` 无限 append）；L25-35 `init`/`getLogs`/`clearLogs`；L37-64 `log.info/warn/error` |
+| `src/utils/fs.ts` | 95 | L20 `temporaryDirectoryPath = Dirs.CacheDir`；L43 `readFile`；L60 `existsFile`；L62 `rename`；L64 `writeFile`；L66 `appendFile`；L36 `unlink` |
+
+## 结论：基线状态
+- **T3 的全部 11 个文件在基线时刻均未被修改**（逐个读取确认，内容与仓库既有风格一致：
+  存在大量被注释掉的历史代码，这是本工程的既有特征，不是改动痕迹）。
+- 后续验证将以此基线逐行比对；**若某文件改动后出现基线中不存在的行为分支，即为回归**。
+
+## package.json 脚本盘点（task-6 第 6 条要求"若存在可运行的测试/构建脚本，执行并记录"）
+
+读取 `package.json`（107 行）后的事实：
+
+| 脚本 | 定义 | 与 task-6 的关系 |
+|---|---|---|
+| `lint` | `eslint . --ext .js,.jsx,.ts,.tsx` | ✅ 存在。注意范围是**全仓 `.`**，不是 task-6 描述的 `src` |
+| `lint:fix` | `eslint . --ext .js,.jsx,.ts,.tsx --fix` | ⚠️ **不要运行**：会自动改文件，违反 verifier 只读约束 |
+| `dev/ios/start/sc/menu` | react-native 运行/调试 | 需真机或模拟器，不可用于验证 |
+| `bundle-android` / `build-test` | `react-native bundle ...` | Metro 打包，**会写入** `android/app/src/main/assets/index.android.bundle`，超出 verifier 写入范围 |
+| `pack:android:debug` / `pack` / `pack:android` / `clear` | gradle 构建 | 耗时长且需 Android SDK，非本次验证范围 |
+| `build:theme` | `node src/theme/themes/createThemes.js` | **会生成主题文件（写盘）**，不运行 |
+| `publish` | `node publish` | 发布流程，绝不运行 |
+
+### ❌ 关键缺口（需 Lead 知晓）
+1. **`package.json` 中不存在 `tsc` / `typecheck` 脚本**。
+   → task-6 与 task-2/3/4/5 中的验收项 `npx tsc --noEmit` 只能靠 `npx tsc --noEmit` 直调
+   （工程装了 `typescript ^5.9.3`，理论可行）。但本会话 pwsh 不可用，**无法执行**。
+2. **`package.json` 中不存在 `test` 脚本，且 devDependencies 中没有任何测试框架**
+   （无 jest / mocha / vitest；无 `@testing-library/*`）。
+   → **本工程没有任何可运行的单元/集成测试**。task-6 的"执行测试并记录"实际无对象可执行。
+   → 这意味着本次交付（一个日志模块 + 遍布热路径的埋点）**没有任何自动化测试保障**，
+      只能依赖静态检查 + 人工代码审查 + 真机验证。
+
+## 无法建立的基线（因 pwsh 不可用）
+- `npx tsc --noEmit` 的错误基线（**未知**）→ 无法区分"既有错误"与"新增错误"。
+- `npx eslint` 的 error 基线（**未知**）。
+- `git status` / `git diff --stat` 的改动面基线（**未知**）。
+- package.json 中的 lint/tsc 脚本（**未读取**）。

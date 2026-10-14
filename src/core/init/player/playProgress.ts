@@ -9,6 +9,8 @@ import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
 import { onScreenStateChange } from '@/utils/nativeModules/utils'
 import { AppState } from 'react-native'
+import { info, warn, error } from '@/utils/runtimeLog'
+import { markEvent } from '@/utils/stallWatchdog'
 
 const delaySavePlayInfo = throttleBackgroundTimer(() => {
   void savePlayInfo({
@@ -36,6 +38,9 @@ export default () => {
       if (settingState.setting['player.isSavePlayTime'] && !playerState.playMusicInfo.isTempPlay && isScreenOn) {
         delaySavePlayInfo()
       }
+    }).catch((err: any) => {
+      // 1s 轮询热路径：只在失败时记标量，不刷屏
+      error('PLAYBACK', 'getPosition failed', { message: err?.message, id })
     })
   }
   const getMaxTime = async() => {
@@ -62,7 +67,10 @@ export default () => {
     updateTimeout = null
   }
   const startUpdateTimeout = () => {
-    if (!isScreenOn) return
+    if (!isScreenOn) {
+      info('PLAYBACK', 'startUpdateTimeout skipped, screen off')
+      return
+    }
     clearUpdateTimeout()
     updateTimeout = BackgroundTimer.setInterval(() => {
       getCurrentTime()
@@ -73,6 +81,8 @@ export default () => {
   const setProgress = (time: number, maxTime?: number) => {
     if (!playerState.musicInfo.id) return
     // console.log('setProgress', time, maxTime)
+    info('PLAYBACK', 'setProgress', { time, maxTime, id: playerState.musicInfo.id })
+    markEvent('playback.setProgress', { time })
     setNowPlayTime(time)
     void setCurrentTime(time)
 
@@ -83,12 +93,15 @@ export default () => {
 
 
   const handlePlay = () => {
+    info('PLAYBACK', 'progress handler: play', { id: playerState.musicInfo.id, isScreenOn })
+    markEvent('playback.progress.play')
     void getMaxTime()
     // prevProgressStatus = 'normal'
     // handleSetTaskBarState(playProgress.progress, prevProgressStatus)
     startUpdateTimeout()
   }
   const handlePause = () => {
+    info('PLAYBACK', 'progress handler: pause', { id: playerState.musicInfo.id, isScreenOn })
     // prevProgressStatus = 'paused'
     // handleSetTaskBarState(playProgress.progress, prevProgressStatus)
     // clearBufferTimeout()
@@ -96,6 +109,7 @@ export default () => {
   }
 
   const handleStop = () => {
+    info('PLAYBACK', 'progress handler: stop', { id: playerState.musicInfo.id })
     clearUpdateTimeout()
     setNowPlayTime(0)
     setMaxplayTime(0)
@@ -106,6 +120,12 @@ export default () => {
   const handleError = () => {
     // if (!restorePlayTime) restorePlayTime = getCurrentTime() // 记录出错的播放时间
     // console.log('handleError')
+    warn('PLAYBACK', 'progress handler: error, stop polling', {
+      id: playerState.musicInfo.id,
+      nowPlayTime: playerState.progress.nowPlayTime,
+      maxPlayTime: playerState.progress.maxPlayTime,
+    })
+    markEvent('playback.progress.error')
     // prevProgressStatus = 'error'
     // handleSetTaskBarState(playProgress.progress, prevProgressStatus)
     clearUpdateTimeout()
@@ -149,10 +169,17 @@ export default () => {
   // })
 
   const handleConfigUpdated: typeof global.state_event.configUpdated = (keys, settings) => {
-    if (keys.includes('player.playbackRate')) startUpdateTimeout()
+    if (keys.includes('player.playbackRate')) {
+      info('PLAYBACK', 'playbackRate config updated, restart polling', {
+        playbackRate: settingState.setting['player.playbackRate'],
+      })
+      startUpdateTimeout()
+    }
   }
 
   const handleScreenStateChanged: Parameters<typeof onScreenStateChange>[0] = (state) => {
+    info('PLAYBACK', 'screen state changed', { state, prevIsScreenOn: isScreenOn, isPlay: playerState.isPlay })
+    markEvent('playback.screenState', { state })
     isScreenOn = state == 'ON'
     if (isScreenOn) {
       if (playerState.isPlay) startUpdateTimeout()
@@ -161,7 +188,10 @@ export default () => {
 
   // 修复在某些设备上屏幕状态改变事件未触发导致的进度条未更新的问题
   AppState.addEventListener('change', (state) => {
-    if (state == 'active' && !isScreenOn) handleScreenStateChanged('ON')
+    if (state == 'active' && !isScreenOn) {
+      info('PLAYBACK', 'AppState active while screen flagged off, resync screen state')
+      handleScreenStateChanged('ON')
+    }
   })
 
   global.app_event.on('play', handlePlay)

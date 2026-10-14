@@ -1,0 +1,34 @@
+verifier 工具可用性探针
+采集时刻: (见文件系统 mtime / 由 verifier 于会话早期写入)
+工作区: E:\WorkSpace\LXMusic\lx-music-mobile
+
+== 结论 ==
+pwsh (PowerShell 工具) 完全不可用。
+任何命令(含 `pwd`)均失败:
+  Error: sandbox-local windows-acl temp grant materialization failed and its cleanup also failed
+
+因此本文件由 write 工具(文件系统后端，不经过 pwsh)写入，而非命令行重定向。
+
+== 对 task-6 的影响 ==
+以下验收命令【无法执行】:
+  npx tsc --noEmit
+  npx eslint src --ext .js,.jsx,.ts,.tsx
+  git status --short
+  git diff --stat
+  git diff <file>
+
+== 已尝试的降级方案(均失败，不再重试) ==
+1. 带 workdir 指定工作目录 -> 路径解析阶段即失败
+2. 不带 workdir(默认目录)       -> 同一错误
+3. cmd /c 包装                   -> 底层仍是同一 pwsh 进程，同一错误
+
+== 修复尝试(被拒，按技能规定停止) ==
+命令: & 'E:\LocalTemp\dsh-acl-skill-JpfLTw\scripts\diagnose-windows-sandbox-acl.ps1'
+        -Path 'E:\WorkSpace\LXMusic\lx-music-mobile'
+        -AllowRoot 'E:\WorkSpace\LXMusic'
+        -Out 'E:\WorkSpace\LXMusic\.dsh-acl-recovery'
+结果: 自动拒绝 (本会话审批已禁用)。
+规定: 修复被拒后必须停止; 不得绕过、不得手工改权限、不得扩大 -AllowRoot。
+
+== 仍然可用的工具 ==
+read / write / edit / glob / grep  (文件系统后端，不依赖 pwsh)

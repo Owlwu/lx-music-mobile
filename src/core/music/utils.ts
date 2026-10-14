@@ -11,6 +11,8 @@ import settingState from '@/store/setting/state'
 import { requestMsg } from '@/utils/message'
 import BackgroundTimer from 'react-native-background-timer'
 import { apis } from '@/utils/musicSdk/api-source'
+import { info, warn, error } from '@/utils/runtimeLog'
+import { markEvent } from '@/utils/stallWatchdog'
 
 
 const getOtherSourcePromises = new Map()
@@ -50,19 +52,41 @@ export const getOtherSource = async(musicInfo: LX.Music.MusicInfo | LX.Download.
       interval: musicInfo.interval ?? '',
     }
   }
-  if (getOtherSourcePromises.has(key)) return getOtherSourcePromises.get(key)
+  if (getOtherSourcePromises.has(key)) {
+    info('MUSIC_URL', 'getOtherSource hit in-flight promise cache', { key })
+    return getOtherSourcePromises.get(key)
+  }
+  if (otherSourceCache.has(musicInfo)) {
+    info('MUSIC_URL', 'getOtherSource hit result cache', { key })
+    return otherSourceCache.get(musicInfo)!
+  }
 
   const promise = new Promise<LX.Music.MusicInfoOnline[]>((resolve, reject) => {
     let timeout: null | number = BackgroundTimer.setTimeout(() => {
       timeout = null
+      error('MUSIC_URL', 'getOtherSource timeout', { key, timeoutMs: 12_000 })
+      markEvent('musicUrl.getOtherSource.timeout', { key })
       reject(new Error('find music timeout'))
     }, 12_000)
+    info('MUSIC_URL', 'getOtherSource start', {
+      key,
+      name: searchMusicInfo.name,
+      singer: searchMusicInfo.singer,
+      source: searchMusicInfo.source,
+    })
+    markEvent('musicUrl.getOtherSource.start', { key })
     findMusic(searchMusicInfo).then((otherSource) => {
       if (otherSourceCache.size > 10) otherSourceCache.clear()
       const source = otherSource.map(toNewMusicInfo) as LX.Music.MusicInfoOnline[]
       otherSourceCache.set(musicInfo, source)
+      info('MUSIC_URL', 'getOtherSource done', { key, count: source.length })
+      markEvent('musicUrl.getOtherSource.done', { key, count: source.length })
       resolve(source)
-    }).catch(reject).finally(() => {
+    }).catch((err: any) => {
+      error('MUSIC_URL', 'getOtherSource failed', { key, message: err?.message })
+      markEvent('musicUrl.getOtherSource.failed', { key, message: err?.message })
+      reject(err)
+    }).finally(() => {
       if (timeout) BackgroundTimer.clearTimeout(timeout)
     })
   }).then((otherSource) => {
@@ -254,13 +278,31 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
     if (!musicInfo.meta._qualitys[itemQuality]) continue
 
     console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
+    info('MUSIC_URL', 'try toggle to source', {
+      source: musicInfo.source,
+      id: musicInfo.id,
+      name: musicInfo.name,
+      quality: itemQuality,
+      isRefresh,
+      retryedCount: retryedSource.length,
+    })
+    markEvent('musicUrl.toggleSource', { source: musicInfo.source, id: musicInfo.id })
     onToggleSource(musicInfo)
     break
   }
-  if (!musicInfo || !itemQuality) throw new Error(global.i18n.t('toggle_source_failed'))
+  if (!musicInfo || !itemQuality) {
+    error('MUSIC_URL', 'toggle source failed, no playable source', {
+      retryedSource: retryedSource.join(','),
+      quality,
+    })
+    throw new Error(global.i18n.t('toggle_source_failed'))
+  }
 
   const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
-  if (cachedUrl && !isRefresh) return { url: cachedUrl, musicInfo, quality: itemQuality, isFromCache: true }
+  if (cachedUrl && !isRefresh) {
+    info('MUSIC_URL', 'url hit cache', { source: musicInfo.source, id: musicInfo.id, quality: itemQuality })
+    return { url: cachedUrl, musicInfo, quality: itemQuality, isFromCache: true }
+  }
 
   let reqPromise
   try {
@@ -268,14 +310,26 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
   } catch (err: any) {
     reqPromise = Promise.reject(err)
   }
+  info('MUSIC_URL', 'request url from plugin', {
+    plugin: musicInfo.source,
+    id: musicInfo.id,
+    quality: itemQuality,
+  })
   // retryedSource.includes(musicInfo.source)
   // eslint-disable-next-line @typescript-eslint/promise-function-async
   return reqPromise.then(({ url, type }: { url: string, type: LX.Quality }) => {
+    info('MUSIC_URL', 'url got', { plugin: musicInfo.source, id: musicInfo.id, quality: type })
     return { musicInfo, url, quality: type, isFromCache: false }
     // eslint-disable-next-line @typescript-eslint/promise-function-async
   }).catch((err: any) => {
     if (err.message == requestMsg.tooManyRequests) throw err
     console.log(err)
+    warn('MUSIC_URL', 'url request failed, try next source', {
+      plugin: musicInfo.source,
+      id: musicInfo.id,
+      quality: itemQuality,
+      message: err?.message,
+    })
     return getOnlineOtherSourceMusicUrl({ musicInfos, quality, onToggleSource, isRefresh, retryedSource })
   })
 }
@@ -299,6 +353,14 @@ export const handleGetOnlineMusicUrl = async({ musicInfo, quality, onToggleSourc
   // console.log(musicInfo.source)
   const targetQuality = quality ?? getPlayQuality(settingState.setting['player.playQuality'], musicInfo)
 
+  info('MUSIC_URL', 'request url from plugin', {
+    plugin: musicInfo.source,
+    id: musicInfo.id,
+    quality: targetQuality,
+    isRefresh,
+  })
+  markEvent('musicUrl.getUrl.start', { source: musicInfo.source, id: musicInfo.id })
+
   let reqPromise
   try {
     reqPromise = musicSdk[musicInfo.source].getMusicUrl(toOldMusicInfo(musicInfo), targetQuality).promise
@@ -306,9 +368,19 @@ export const handleGetOnlineMusicUrl = async({ musicInfo, quality, onToggleSourc
     reqPromise = Promise.reject(err)
   }
   return reqPromise.then(({ url, type }: { url: string, type: LX.Quality }) => {
+    info('MUSIC_URL', 'url got', { plugin: musicInfo.source, id: musicInfo.id, quality: type })
+    markEvent('musicUrl.getUrl.done', { source: musicInfo.source, id: musicInfo.id })
     return { musicInfo, url, quality: type, isFromCache: false }
   }).catch(async(err: any) => {
     console.log(err)
+    warn('MUSIC_URL', 'url request failed', {
+      plugin: musicInfo.source,
+      id: musicInfo.id,
+      quality: targetQuality,
+      allowToggleSource,
+      message: err?.message,
+    })
+    markEvent('musicUrl.getUrl.failed', { source: musicInfo.source, id: musicInfo.id, message: err?.message })
     if (!allowToggleSource || err.message == requestMsg.tooManyRequests) throw err
     onToggleSource()
     // eslint-disable-next-line @typescript-eslint/promise-function-async

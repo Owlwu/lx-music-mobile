@@ -3,6 +3,8 @@ import BackgroundTimer from 'react-native-background-timer'
 import { playMusic as handlePlayMusic } from './playList'
 import { existsFile, moveFile, privateStorageDirectoryPath, temporaryDirectoryPath } from '@/utils/fs'
 import { toast } from '@/utils/tools'
+import { info, warn, error } from '@/utils/runtimeLog'
+import { markEvent } from '@/utils/stallWatchdog'
 // import { PlayerMusicInfo } from '@/store/modules/player/playInfo'
 
 
@@ -154,16 +156,40 @@ export const setResource = (musicInfo: LX.Player.PlayMusic, url: string, duratio
   playMusic(musicInfo, url, duration ?? 0)
 }
 
-export const setPlay = async() => TrackPlayer.play()
+export const setPlay = async() => {
+  markEvent('player.setPlay')
+  const startTime = Date.now()
+  return TrackPlayer.play().then((result) => {
+    info('PLAYER', 'TrackPlayer.play done', { elapsed: Date.now() - startTime })
+    return result
+  })
+}
 export const getPosition = async() => TrackPlayer.getPosition()
 export const getDuration = async() => TrackPlayer.getDuration()
 export const setStop = async() => {
+  // 注意：TrackPlayer.stop() / skipToNext() 是纯原生 Promise、无超时。
+  // 若原生播放器处于坏状态（解码器卡死 / audio offload 异常），这里可能永不 resolve，
+  // 导致 handlePlay() 后续取 URL、播放全部不执行 —— 这是"歌曲不播放"的头号嫌疑点。
+  markEvent('player.setStop.start', { isEmpty: isEmpty() })
+  const stopStart = Date.now()
+  info('PLAYER', 'setStop start', { isEmpty: isEmpty() })
   await TrackPlayer.stop()
-  if (!isEmpty()) await TrackPlayer.skipToNext()
+  info('PLAYER', 'setStop TrackPlayer.stop done', { elapsed: Date.now() - stopStart })
+  if (!isEmpty()) {
+    markEvent('player.setStop.skipToNext.start')
+    const skipStart = Date.now()
+    await TrackPlayer.skipToNext()
+    info('PLAYER', 'setStop skipToNext done', { elapsed: Date.now() - skipStart })
+  }
+  info('PLAYER', 'setStop done', { elapsed: Date.now() - stopStart })
+  markEvent('player.setStop.done', { elapsed: Date.now() - stopStart })
 }
 export const setLoop = async(loop: boolean) => TrackPlayer.setRepeatMode(loop ? RepeatMode.Off : RepeatMode.Track)
 
-export const setPause = async() => TrackPlayer.pause()
+export const setPause = async() => {
+  markEvent('player.setPause')
+  return TrackPlayer.pause()
+}
 // export const skipToNext = () => TrackPlayer.skipToNext()
 export const setCurrentTime = async(time: number) => TrackPlayer.seekTo(time)
 export const setVolume = async(num: number) => TrackPlayer.setVolume(num)
@@ -189,19 +215,33 @@ export const migratePlayerCache = async() => {
   if (await existsFile(newCachePath)) return
   const oldCachePath = temporaryDirectoryPath + '/TrackPlayer'
   if (!await existsFile(oldCachePath)) return
+  info('PLAYER', 'migratePlayerCache start')
+  markEvent('player.migrateCache.start')
   let timeout: number | null = BackgroundTimer.setTimeout(() => {
     timeout = null
     toast(global.i18n.t('player_cache_migrating'), 'long')
   }, 2_000)
+  const startTime = Date.now()
+  // 注意：moveFile 无超时，若卡住则 initial() 后续 setupPlayer 永不执行（无日志可查）
   await moveFile(oldCachePath, newCachePath).finally(() => {
     if (timeout) BackgroundTimer.clearTimeout(timeout)
   })
+  info('PLAYER', 'migratePlayerCache done', { elapsed: Date.now() - startTime })
 }
 
 export const destroy = async() => {
-  if (global.lx.playerStatus.isIniting || !global.lx.playerStatus.isInitialized) return
+  if (global.lx.playerStatus.isIniting || !global.lx.playerStatus.isInitialized) {
+    info('PLAYER', 'destroy skipped by guard', {
+      isIniting: global.lx.playerStatus.isIniting,
+      isInitialized: global.lx.playerStatus.isInitialized,
+    })
+    return
+  }
+  markEvent('player.destroy.start')
   await TrackPlayer.destroy()
   global.lx.playerStatus.isInitialized = false
+  info('PLAYER', 'destroy done')
+  markEvent('player.destroy.done')
 }
 
 type PlayStatus = 'None' | 'Ready' | 'Playing' | 'Paused' | 'Stopped' | 'Buffering' | 'Connecting'
@@ -233,6 +273,8 @@ export const onStateChange = async(listener: (state: PlayStatus) => void) => {
         _state = 'None'
         break
     }
+    // 热路径：只记标量，不序列化 state 对象
+    info('PLAYBACK', 'state change', { state: _state })
     listener(_state)
   })
 
@@ -288,7 +330,12 @@ export const updateOptions = async(options = {
   // nextIcon: require('./next-icon.png'),
   // icon: notificationIcon, // The notification icon
 }) => {
-  return TrackPlayer.updateOptions(options)
+  markEvent('player.updateOptions')
+  info('PLAYER', 'updateOptions start')
+  return TrackPlayer.updateOptions(options).then((result) => {
+    info('PLAYER', 'updateOptions done')
+    return result
+  })
 }
 
 // export const setMaxCache = async size => {

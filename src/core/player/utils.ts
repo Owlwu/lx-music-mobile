@@ -1,6 +1,7 @@
 import { clearPlayedList } from './playedList'
 import { SPLIT_CHAR } from '@/config/constant'
 import { state } from '@/store/dislikeList'
+import { info } from '@/utils/runtimeLog'
 
 /**
  * 过滤列表中已播放的歌曲
@@ -125,9 +126,24 @@ export const filterList = async({ playedList, listId, list, playerMusicInfo, isN
   })
 
   if (!filteredList.length && playedList.length) {
+    info('PLAYER', 'filterList empty but playedList not empty, clearing playedList', {
+      listId,
+      listSize: list.length,
+      playedListSize: playedList.length,
+      isNext,
+    })
     clearPlayedList()
     return { filteredList: canPlayList, playerIndex }
   }
+  info('PLAYER', 'filterList done', {
+    listId,
+    listSize: list.length,
+    filteredCount: filteredList.length,
+    canPlayCount: canPlayList.length,
+    playedListSize: playedList.length,
+    playerIndex,
+    isNext,
+  })
   return { filteredList, playerIndex }
 }
 

@@ -2,6 +2,8 @@
 
 import { updateMetaData } from '@/plugins/player'
 import playerState from '@/store/player/state'
+import { info, error } from '@/utils/runtimeLog'
+import { markEvent } from '@/utils/stallWatchdog'
 
 export default () => {
   // const setVisibleDesktopLyric = useCommit('setVisibleDesktopLyric')
@@ -18,8 +20,18 @@ export default () => {
   }
   const setButtons = () => {
     // setPlayerAction(buttons)
-    if (!playerState.playMusicInfo.musicInfo) return
-    void updateMetaData(playerState.musicInfo, playerState.isPlay)
+    if (!playerState.playMusicInfo.musicInfo) {
+      info('PLAYER', 'setButtons skipped, no musicInfo')
+      return
+    }
+    markEvent('playStatus.updateMetaData')
+    void updateMetaData(playerState.musicInfo, playerState.isPlay).catch((err: any) => {
+      error('PLAYER', 'updateMetaData failed', {
+        message: err?.message,
+        id: playerState.musicInfo.id,
+        isPlay: playerState.isPlay,
+      })
+    })
   }
   // const updateCollectStatus = async() => {
   //   // let status = !!playMusicInfo.musicInfo && await checkListExistMusic(LIST_ID_LOVE, playerState.playMusicInfo.musicInfo.id)
@@ -30,14 +42,22 @@ export default () => {
 
   const handlePlay = () => {
     // if (buttons.empty) buttons.empty = false
-    if (buttons.play) return
+    if (buttons.play) {
+      info('PLAYER', 'playStatus handlePlay already active, skipped')
+      return
+    }
     buttons.play = true
+    info('PLAYER', 'playStatus handlePlay, updating buttons')
     setButtons()
   }
   const handlePause = () => {
     // if (buttons.empty) buttons.empty = false
-    if (!buttons.play) return
+    if (!buttons.play) {
+      info('PLAYER', 'playStatus handlePause already inactive, skipped')
+      return
+    }
     buttons.play = false
+    info('PLAYER', 'playStatus handlePause, updating buttons')
     setButtons()
   }
   // const handleStop = () => {
@@ -77,6 +97,7 @@ export default () => {
     // buttons.lockLrc = setting.desktopLyric.isLock
     // await updateCollectStatus()
     // if (playMusicInfo.musicInfo != null) buttons.empty = false
+    info('PLAYER', 'playStatus listener init callback, setButtons')
     setButtons()
   }
 }

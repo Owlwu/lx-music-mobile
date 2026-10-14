@@ -5,6 +5,8 @@ import { isActive } from '@/utils/tools'
 import BackgroundTimer from 'react-native-background-timer'
 import playerState from '@/store/player/state'
 import { setNowPlayTime } from '@/core/player/progress'
+import { info, warn } from '@/utils/runtimeLog'
+import { markEvent } from '@/utils/stallWatchdog'
 
 
 export default () => {
@@ -24,11 +26,19 @@ export default () => {
       // }
 
       // 如果加载超时，则尝试刷新URL
+      warn('PLAYBACK', 'loading timeout fired (25s)', {
+        id: playerState.musicInfo.id,
+        prevTimeoutId: prevTimeoutId || '',
+        isPlayedStop: global.lx.isPlayedStop,
+        isPlay: playerState.isPlay,
+      })
       if (prevTimeoutId == playerState.musicInfo.id) {
         prevTimeoutId = null
+        markEvent('playback.loadingTimeout.playNext', { id: playerState.musicInfo.id })
         void playNext(true)
       } else {
         prevTimeoutId = playerState.musicInfo.id
+        markEvent('playback.loadingTimeout.refreshUrl', { id: playerState.musicInfo.id })
         if (playerState.playMusicInfo.musicInfo) setMusicUrl(playerState.playMusicInfo.musicInfo, true)
       }
     }, 25000)
@@ -53,13 +63,27 @@ export default () => {
         setStatusText('')
         return
       }
+      info('PLAYBACK', 'delay next timeout fired, playNext(true)', { id: playerState.musicInfo.id })
+      markEvent('playback.delayNextTimeout', { id: playerState.musicInfo.id })
       void playNext(true)
     }, 5000)
   }
 
   const handleLoadstart = () => {
     console.log('handleLoadstart', playerState.isPlay)
-    if (global.lx.isPlayedStop || !playerState.isPlay) return
+    info('PLAYBACK', 'playerLoadstart', {
+      isPlay: playerState.isPlay,
+      isPlayedStop: global.lx.isPlayedStop,
+      id: playerState.musicInfo.id,
+    })
+    if (global.lx.isPlayedStop || !playerState.isPlay) {
+      info('PLAYBACK', 'playerLoadstart ignored by guard', {
+        isPlayedStop: global.lx.isPlayedStop,
+        isPlay: playerState.isPlay,
+      })
+      return
+    }
+    markEvent('playback.loadstart', { id: playerState.musicInfo.id })
     startLoadingTimeout()
     setStatusText(global.i18n.t('player__loading'))
   }
@@ -73,36 +97,59 @@ export default () => {
   // }
 
   const handlePlaying = () => {
+    info('PLAYBACK', 'playerPlaying, load timeout cleared', { id: playerState.musicInfo.id })
+    markEvent('playback.playing')
     setStatusText('')
     clearLoadingTimeout()
   }
 
   const handleEmpied = () => {
+    info('PLAYBACK', 'playerEmptied', { id: playerState.musicInfo.id })
+    markEvent('playback.emptied')
     clearDelayNextTimeout()
     clearLoadingTimeout()
   }
 
   const handleWating = () => {
+    info('PLAYBACK', 'playerWaiting (buffering)', { id: playerState.musicInfo.id })
+    markEvent('playback.waiting')
     setStatusText(global.i18n.t('player__buffering'))
   }
 
   const handleError = () => {
     if (!playerState.musicInfo.id) return
+    warn('PLAYBACK', 'playerError', {
+      id: playerState.musicInfo.id,
+      retryNum,
+      isPlayedStop: global.lx.isPlayedStop,
+      isPlay: playerState.isPlay,
+    })
+    markEvent('playback.error', { id: playerState.musicInfo.id, retryNum })
     clearLoadingTimeout()
     if (global.lx.isPlayedStop) return
     if (playerState.playMusicInfo.musicInfo && retryNum < 2) { // 若音频URL无效则尝试刷新2次URL
       let musicInfo = playerState.playMusicInfo.musicInfo
+      info('PLAYBACK', 'playerError, refreshing url', { retryNum: retryNum + 1, id: musicInfo.id })
       void getPosition().then((position) => {
         if (position) setNowPlayTime(position)
       }).finally(() => {
         // console.log(this.retryNum)
-        if (playerState.playMusicInfo.musicInfo !== musicInfo) return
+        if (playerState.playMusicInfo.musicInfo !== musicInfo) {
+          info('PLAYBACK', 'playerError retry abandoned, musicInfo changed', { id: musicInfo.id })
+          return
+        }
         retryNum++
         setMusicUrl(playerState.playMusicInfo.musicInfo, true)
         setStatusText(global.i18n.t('player__refresh_url'))
       })
       return
     }
+    info('PLAYBACK', 'playerError retries exhausted, stopping', {
+      retryNum,
+      isEmpty: isEmpty(),
+      isActive: isActive(),
+      id: playerState.musicInfo.id,
+    })
     if (!isEmpty()) void setStop()
 
     if (isActive()) {
@@ -110,11 +157,16 @@ export default () => {
       setTimeout(addDelayNextTimeout)
     } else {
       console.warn('error skip to next')
+      info('PLAYBACK', 'playerError while inactive, skip to next')
       void playNext(true)
     }
   }
 
   const handleSetPlayInfo = () => {
+    info('PLAYBACK', 'musicToggled, reset load/retry state', {
+      prevRetryNum: retryNum,
+      prevTimeoutId: prevTimeoutId || '',
+    })
     retryNum = 0
     prevTimeoutId = null
     clearDelayNextTimeout()
