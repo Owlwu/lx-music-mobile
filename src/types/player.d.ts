@@ -30,8 +30,12 @@ declare global {
         musicInfo: PlayMusic
         /**
           * 当前播放歌曲的列表 id
+          *
+          * 注意：可能为 `null`，表示「稍后播放」伪列表
+          * （见 `LIST_IDS.PLAY_LATER`，其值即为 `null`）。
+          * 底层 `core/player/playInfo.ts` 的相关函数本就以 `string | null` 接收并处理该值。
           */
-        listId: string
+        listId: string | null
         /**
           * 是否属于 “稍后播放”
           */
