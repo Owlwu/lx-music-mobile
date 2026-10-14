@@ -1,16 +1,38 @@
 # T6 独立验证报告（verifier）
 
-> ## ⚠️ 顶部豁免声明（必读）
+> ## ⚠️ 顶部声明（必读，**已更新至最终状态**）
 >
-> **tsc / eslint / git 均未能执行。** 原因：本会话 DSH 沙箱无法在 `E:\WorkSpace\LXMusic`
-> 落地临时文件授权（`sandbox-local windows-acl temp grant materialization failed`）。
-> Lead 已实测官方修复脚本，判定 `NOT_THIS_CLASS`：断点在祖先目录 `E:\WorkSpace` 与 `E:\`
-> （owner 为另一 SID，`WRITE_DAC=False / WRITE_OWNER=False`），当前用户无权修改，
-> 且技能规定不得扩大 `-AllowRoot` 或手工改权限。
-> **因此本报告结论不可作为"编译/构建/运行通过"的依据。**
-> 本报告的所有结论均为**静态代码审查**（逐行读源码 + 读构建产物原文）得出。
+> ### 门禁状态：`npm run tsc` = 0、`npm run lint` = 0
+> **由 Lead 实测；verifier 未亲测。** 原因见下 —— verifier 的 shell 全程不可用，
+> **且作为 subagent 其权限在会话启动时即被固定，无法从内部放宽**
+> （用户把 Lead 会话切到 full-access **不会**追溯解禁 verifier 的会话）。
+> 命令原文与 `git diff` 输出由 **Lead 代跑**，verifier 据此做**加性逻辑复核**（§10）。
+>
+> ### verifier 自身未能执行的命令
+> **`tsc` / `eslint` / `git` 在 verifier 会话中始终无法执行。**
+> `sandbox-local windows-acl temp grant materialization failed and its cleanup also failed`
+> （含最小探测 `pwd` 同样失败，排除命令本身问题）。
+> 官方修复脚本已试两次（一次由 Lead、一次由 verifier），**均被拒绝或不适用**；
+> 按技能硬规则停止（不重试、不绕过、不改 `-AllowRoot`）。
+> 技术根因：断点在祖先目录 `E:\WorkSpace` 与 `E:\`（owner 为另一 SID，
+> `WRITE_DAC=False / WRITE_OWNER=False`），当前用户无权修改。
+>
+> ### 因此本报告的证据分级
+> | 证据类型 | 来源 | 可信度 |
+> |---|---|---|
+> | 门禁结果（tsc/lint = 0） | **Lead 代跑** | ⚠️ 采信但**未复现** |
+> | `git diff b2b3dab 75ba8d04` | **Lead 代跑** | ⚠️ 采信但**未复现** |
+> | **逻辑回归 / 控制流等价性 / 类型核实** | **verifier 独立读码** | ✅ **独立验证**（本报告的核心价值） |
+>
+> **本报告的核心结论（T3 零业务分支改动、`unref` 守卫保留、4 处 `??` 等价、
+> `player.d.ts` 放宽不削弱保护）均为 verifier 独立读码得出，不依赖上述代跑证据。**
 >
 > 原始失败证据见 `baseline-tooling-probe.txt`；基线原文见 `baseline-git.txt`。
+
+> ### 📌 当前有效终态
+> **`75ba8d04`**（`src/**` 的"冻结"在本会话被打破过两次：① `app.ts` 内存采样 → §9；
+> ② tsc/lint 门禁引入后的 `b2b3dab`+`75ba8d04` → **§10**）。
+> **§10 是最新一轮增量复审，其结论优先。**
 
 ---
 
@@ -18,13 +40,14 @@
 
 | 项 | 结论 |
 |---|---|
-| **总体判定** | ✅ **通过（静态审查口径）** —— 未发现会导致 App 崩溃或改变播放行为的**遗留**缺陷。**2 处真实缺陷均由 verifier 独立发现，均已修复并复核终态** |
-| T3 逻辑回归 | ✅ **通过**。1 处真实回归**由 verifier 独立发现**，已修复并复核终态 |
-| T2 日志模块安全性 | ✅ **通过**。6 项发现（含 3 项 CRITICAL）全部由 logcore 修复，verifier 独立读码确认 |
+| **总体判定** | ✅ **通过（逻辑复审口径）**，对应终态 **`75ba8d04`**。未发现会导致 App 崩溃或改变播放行为的**遗留**缺陷。**2 处真实缺陷均由 verifier 独立发现，均已修复并复核终态**；`tsc`/`lint` 门禁已双绿（Lead 实测） |
+| **门禁** | ✅ `npm run tsc` = 0、`npm run lint` = 0 —— **Lead 实测，verifier 未亲测**（§10.0） |
+| T3 逻辑回归 | ✅ **通过**。1 处真实回归**由 verifier 独立发现**，已修复；`caaed5a→75ba8d04` 的 lint/type 改动经 §10 加性复核**未夹带业务改动** |
+| T2 日志模块安全性 | ✅ **通过**。6 项发现（含 3 项 CRITICAL）全部由 logcore 修复，verifier 独立读码确认；**`unref` 运行时守卫保留** ✅（§10.2） |
 | 埋点覆盖度 | ⚠️ **18/25 条已落地，7 条未落地**（详见第 4 节 + 第 9.5 节更新，均**不阻塞**本次目标） |
-| T5 UI/i18n | ✅ **通过**。1 处**用户可见缺陷**（清空按钮错位）**由 verifier 发现**，已修复并复核终态；i18n 三语齐全 |
+| T5 UI/i18n | ✅ **通过**。1 处**用户可见缺陷**（清空按钮错位）**由 verifier 发现**，已修复复核；i18n 三语齐全 |
 | Lead 原生结论 F1 | ❌ **已由 verifier 独立推翻**（见第 6 节） |
-| 未验证项 | ⚠️ 见第 7 节「未验证项与残余风险」 |
+| 未验证项 | ⚠️ 见第 7 节；**新增**：`PLAY_LATER`（`listId === null`）路径需真机验证（§10.5） |
 
 ### 严重问题清单（按严重程度排序）
 
@@ -36,6 +59,8 @@
 | 4 | 🟡 低 | `runtimeLog.flushSyncBestEffort` **不保证**崩溃前落盘（RN 无真同步写，平台限制） | `runtimeLog.ts:513-518` | ⚠️ 已文档化，属平台限制 |
 | 5 | 🟡 低 | `getOtherSource` 新增了一次**冗余缓存复查**（L59-62，L27 已返回，实际不可达） | `core/music/utils.ts:59-62` | ⚠️ 无害，建议清理 |
 | 6 | 🟡 低 | `t4-report.md` 的锚点行号有**系统性偏差**（7 个锚点中 6 个 +1、超时块 −3；`void initLog()` 报 `:94` 实际 `:95`） | `.diagnosis/t4-report.md` | ✅ **已修正并复核闭环**（详见 9.8） |
+| 7 | 🟢 提示 | verifier 的 shell 全程不可用且**无法从内部放宽**（subagent 权限启动时固定）→ 门禁/git 证据均为 **Lead 代跑** | —（环境限制） | ⚠️ 已如实标注（§10.0） |
+| 8 | 🟡 低-中 | `player.d.ts` 的 `PlayMusicInfo.listId` 放宽为 `string \| null`：**无运行时变化**，但**扩大编译期检查面** → 若存在未做 null 判断的消费点，缺陷会推迟到运行时暴露 | `src/types/player.d.ts:38`（`b2b3dab`） | ⚠️ **需真机验证 `PLAY_LATER`（`listId === null`）路径**（§10.5） |
 
 > **⚠️ 审查时点声明（重要）**：本报告主体完成于 task-6 complete 之时。
 > 之后 boottrace 又对 `src/app.ts` 做了一轮"覆盖度补修"（**在我完成 task-6 之后**）。
@@ -67,28 +92,32 @@ verifier 用 `read` 工具**逐文件抓取了 T3 全部 11 个写入范围文�
 `.diagnosis/baseline-git.txt` 中的行号与内容为 verifier 手工读取记录，**非 shell 计算**，
 不作密码学证明，仅用于定位与对照。采集时刻为 T3 动手**之前**，故基线未受 T3 污染。
 
-### 1.4 ✅ 终态冻结确认（本报告结论的**生效前提**）
+### 1.4 ⚠️ 终态冻结前提（**已两次失效，见 §10**）
+
+> **本节原记录的是"`app.ts` 冻结"的第一次确认。该前提此后已被打破两次**
+> （① `app.ts` 内存采样接入 → §9 已补做增量复查；② **`npm run tsc`/`lint` 门禁引入后的
+> `b2b3dab` + `75ba8d04` 两次提交** → **§10 为本报告的最新一轮增量复审**）。
+> **当前有效终态为 `75ba8d04`。** 本节与 §2/§9 的结论在经 §10 复核后仍然成立。
 
 **第 2 节"逐字基线对照、零业务分支改动"的结论，只对 T3 的 11 个文件成立，
-且仅在它们自我读取终态之后保持不动时有效。** 该前提已由 Lead 正式确认：
+且仅在它们自我读取终态之后保持不动时有效。** 第一次确认由 Lead 提供：
 
 - **Lead 实测确认**（非采信队友声明）：全队 6 名队友**全部 `inactive`**，
   无人持有 `src/**` 写入范围；Lead 未再派发任何 `src/**` 改动。
 - **Lead 逐个复核了 verifier 点名的 4 个关键文件**（独立于 boottrace 的冻结声明）。
-- **verifier 亦独立复测**（本报告定稿时）：
+- **verifier 亦独立复测**（§9 定稿时）：
   - `plugins/player/index.ts`：`try {` **零命中**；`:71 await updateOptions()` /
     `:75 await setVolume()` / `:79 await setPlaybackRate()` ⇒ 高 severity 回归**已修复且未反复** ✅
-  - `core/player/player.ts`：`:217` `.finally(` **仍在**（未被改成 `.catch`）；
-    `:349` / `:831` `await setStop()` **未加超时、未加 catch** ✅
-  - `utils/errorHandle.ts`：`:51 Alert.alert(` 与 `:68 log.error(e.stack)` 均在 ⇒ **Alert 行为完整保留** ✅
+  - `core/player/player.ts`：`.finally(` **仍在**（未被改成 `.catch`）；
+    `await setStop()` **未加超时、未加 catch** ✅
+  - `utils/errorHandle.ts`：`Alert.alert(` 与 `log.error(e.stack)` 均在 ⇒ **Alert 行为完整保留** ✅
   - `app.ts`：**224 行**，7 个锚点 `:45/:95/:113/:130/:147/:215/:220` 复测不变 ✅
-- **唯一在"验证通过"后发生过的改动**是 `app.ts` 的内存采样接入，
-  已由 verifier **补做增量复查（§9，✅ 通过）**，此后 `app.ts` 冻结并复测确认。
-  ⇒ **不存在"报告说通过、但验证的是旧版本"的情形。**
+- **第一次"验证后改动"**是 `app.ts` 的内存采样接入，已由 verifier **补做增量复查（§9，✅ 通过）**。
 
 > ⚠️ **有效性边界（必须随报告一并传达）**：
 > **若后续再修改 `src/`，本节及第 2 节的验证结论需整体重做。**
-> verifier 无 shell / 无 git，**无法自行监测全仓写入**，只能依赖上述人工确认。
+> verifier 无 shell / 无 git，**无法自行监测全仓写入**，只能依赖人工确认。
+> **本会话 shell 至今不可用**（见 §10.0），故本轮仍需 Lead 代跑命令。
 
 ---
 
@@ -472,22 +501,25 @@ Lead 的 grep 范围是 `android/` 目录 → 零命中；但声明位于 **node
 
 | 项 | 影响 | 严重度 |
 |---|---|---|
-| **`npx tsc --noEmit`** | **全部改动的类型正确性未验证**。可能存在的类型错误（如 `runtimeLog` API 的签名不匹配、`LX.*` 类型引用、`global.lx` 字段拼写）**完全未知**。⚠️ **这是本次交付最大的风险** | 🔴 **高** |
-| **`npx eslint`** | 风格/潜在 bug 规则（`no-unused-vars`、`no-floating-promises`、`@typescript-eslint` 规则）未检查。已知 T3 曾因回滚产生未使用 import（`error`），**说明该类问题真实存在** | 🟠 中 |
-| **`git diff --stat` / `git status`** | 改动面**无法从 git 层确认**，verifier 的基线对照是**代理方案**（覆盖 T3 的 11 文件 100%，但 T4/T5 文件未逐字固化） | 🟠 中 |
-| **是否存在越界改动** | 无法用 git 判定"谁改了什么"。verifier 只能靠**读取终态 + 与已知范围比对**，**不能排除有文件被静默改动后未被覆盖检查** | 🟠 中 |
-| **真机运行** | 无任何运行时验证：日志能否落盘、轮转是否触发、`markEvent` 是否如预期、UI 是否正常渲染 | 🔴 **高** |
+| ~~`npx tsc --noEmit`~~ | ✅ **已解决**（`b2b3dab` 修复 5 处类型错误后，`npm run tsc` = 0）。⚠️ **由 Lead 实测，verifier 未亲测**。注意：**该脚本原工程不存在，用户在本轮新增** | ✅ 已关闭 |
+| ~~`npx eslint`~~ | ✅ **已解决**（`75ba8d04` 修复 27 error + 1 warning 后，`npm run lint` = 0）。⚠️ **由 Lead 实测，verifier 未亲测**。其引入的 12 文件改动已由 verifier 在 §10 加性复核**确认未夹带业务改动** | ✅ 已关闭 |
+| **`git diff --stat` / `git status`** | verifier 侧仍**无法从 git 层确认**改动面（shell 不可用）。T3 的 11 文件有**逐字基线**覆盖；`caaed5a→75ba8d04` 层有 **Lead 代跑的 diff 原文**支撑（§10） | 🟡 低（已由 §10 缓解） |
+| **是否存在越界改动** | verifier 只能靠**读终态 + 与已知范围比对**；**不能排除**有文件被静默改动而未被覆盖检查。§10 已就 Lead 提供的 diff 逐一核对 | 🟡 低-中 |
+| **真机运行** | 无任何运行时验证：日志能否落盘、轮转是否触发、`markEvent` 是否如预期、UI 是否正常渲染。**新增**：`PLAY_LATER`（`listId === null`）路径未验证（§10.5） | 🔴 **高（现为最大残余风险）** |
+
+> **风险排序变化**：原"最高风险"（tsc/eslint 从未运行）**已由门禁关闭**。
+> **当前最大残余风险是"真机运行时未验证"** —— 门禁只能证明"能编译、无 lint error"，
+> **不能证明日志功能在设备上真的工作**。
 
 ### 7.2 静态审查**覆盖不到**的风险
 
-1. **类型/编译错误**（同上，最高风险）。静态读码能发现**逻辑**问题，
-   但**无法发现**类型不匹配、导入路径错误、`tsconfig` 路径别名问题。
-   ⚠️ 特别地：`runtimeLog.ts` 新增大量导出，T3/T4/T5 共 20+ 处 import 点，
-   **任何一处 API 名或签名不匹配都只会在编译/运行时暴露**。
+1. ~~**类型/编译错误**~~ → ✅ **已由 `npm run tsc` = 0 关闭**（§10.0）。
+   保留一条边界：该结果**由 Lead 实测、verifier 未亲测**；且 `tsc` 通过**不代表运行时正确**。
 
-2. **运行时行为**：`setInterval` 看门狗是否真能检测阻塞、
+2. **运行时行为**（**当前最高风险**）：`setInterval` 看门狗是否真能检测阻塞、
    `flush` 的异步时序在真机 RN 桥下是否如预期、`unref()` 在 Hermes 下是否可用
-   （`runtimeLog.ts:227` 有 `typeof unref == 'function'` 保护，**降级安全**）。
+   （`runtimeLog.ts:227`、`:730` 均有 `typeof unref == 'function'` 保护，**降级安全** —— 见 §10.2）。
+   **新增待验**：`player.d.ts` 放宽后，`PLAY_LATER`（`listId === null`）路径的播放/切歌/进度保存（§10.5）。
 
 3. **真实 UTF-8 文件大小**：`utf8ByteLength` 为**手写实现**，未经真机实测验证。
    逻辑上正确（verifier 已逐分支核对 ASCII/2字节/3字节/代理对），
@@ -513,18 +545,13 @@ RN **没有真正的同步文件写**。`flushSyncBestEffort`（`:513-518`）只
 
 ### 7.4 ✅ 建议用户在真机上做的最终验收（最高优先级）
 
-**以下步骤是本次交付能否真正落地的唯一判据**（因为自动化检查全部缺席）：
+**以下步骤是本次交付能否真正落地的唯一判据** ——
+门禁（tsc/lint）已绿，但它只证明"能编译、无 lint error"，
+**不能证明日志功能在设备上真的工作**。
 
-1. **编译验证（必须先做）**：
-   ```bash
-   npx tsc --noEmit
-   npx eslint src/utils/runtimeLog.ts src/utils/stallWatchdog.ts src/utils/log.ts \
-     src/plugins/player/*.ts src/core/player/*.ts src/core/init/player/*.ts \
-     src/core/music/utils.ts src/utils/errorHandle.ts src/app.ts \
-     src/screens/Home/Views/Setting/settings/Other/Log.tsx
-   ```
-   ⚠️ **若 tsc 报错，本次交付不可用** —— 请优先修复后再测。
-   （注：本工程 `package.json` **无 `tsc` 脚本**，须直调 `npx tsc --noEmit`。）
+1. **编译/门禁验证**：✅ **已完成**（`npm run tsc` = 0、`npm run lint` = 0，**Lead 实测**）。
+   - 注：这两个脚本中 `tsc` 是**本轮新增**的；`package.json` 原本既无 `tsc` 也无任何测试框架。
+   - 建议保留该门禁（**先门禁绿、再人工复审**的顺序更稳，见 §10.8 教训）。
 
 2. **冒烟测试**：启动 App → 进设置-其他-日志 → **确认新增的三个按钮**（查看运行时日志/
    分享日志/复制诊断信息）与**运行时日志路径**正常显示 → 点"查看运行时日志"确认有内容。
@@ -533,6 +560,11 @@ RN **没有真正的同步文件写**。`flushSyncBestEffort`（`:513-518`）只
    - 正常听歌 10 分钟，切歌数次 → 导出日志，确认有 `[PLAYBACK]`/`[MUSIC_URL]` 记录；
    - **长时间 + 游戏后台**：听歌 → 切到游戏 20-30 分钟 → 回来观察是否复现；
    - 复现后立即导出日志（**在应用被杀之前**）。
+
+4. **⚠️ 新增必测项：`PLAY_LATER`（"稍后播放"）路径**（对应 §10.5 的类型放宽）
+   - 用「稍后播放」加入歌曲并播放 → 确认**播放、切歌、进度保存**均正常。
+   - 理由：`listId` 类型放宽为 `string | null` 后，**编译器不再强制检查该路径的 null 处理**，
+     若存在遗漏的 null 判断，缺陷会推迟到运行时暴露。**这是本轮类型改动唯一需运行时确认的点。**
 
 4. **重点看**：用 `[STALL]` 判断 JS 线程是否被阻塞；用 `[PLAYBACK_ERROR]` 看错误码；
    用 `[BOOT]` 看白屏卡在哪一步。详见《用户排查操作指南.md》。
@@ -732,3 +764,162 @@ boottrace 已明确：*`src/app.ts` 当前内容即最终版，不会再改动�
 - **覆盖度计数更新：17/25 → 18/25**（L24 成为"有条件的"落地）
 - **verifier 未修改任何 `src/**` 代码**
 - 因无法执行命令，**本报告不构成"可编译/可运行"的保证**（详见顶部豁免声明）。
+
+---
+
+# 10. 增量复审（第二轮）：`tsc`/`lint` 门禁引入后的类型与风格提交
+
+> **背景**：用户把本次交付提交为 `caaed5a`，并新增 `npm run tsc` 脚本 —— **该脚本真的报错**，
+> 于是产生两个后续提交：`b2b3dab`（fix(types)，5 处类型错误）与 `75ba8d04`（style(lint)，27 error + 1 warning）。
+> **`src/**` 的"冻结"因此被打破** —— 且这次打破是**必要的**（门禁查出了真实问题）。
+> → **§1.4 与 §2/§9 的结论对该批文件已 stale，本节为最新一轮复审。**
+
+## 10.0 ⚠️ 重要前提：verifier 的 shell 仍不可用（必须如实声明）
+
+**Lead 告知"shell 已恢复，可直接跑 `git diff` / `npm run tsc` / `npm run lint`" —— 该前提对 verifier 不成立。**
+
+verifier 实测（本轮）：
+```
+pwsh: git log --oneline -6   → Error: sandbox-local windows-acl temp grant materialization failed and its cleanup also failed
+pwsh: pwd                    → 同一错误（最小探测，排除命令本身问题）
+```
+再次尝试官方 ACL 修复脚本 → **再次被自动拒绝** → 按技能硬规则停止（不重试、不绕过、不改 `-AllowRoot`）。
+
+**根因**：verifier 作为 subagent，其**权限范围在会话启动时即被固定**，无法从内部放宽
+（系统提示原文："your permission scope was fixed when you were started and cannot be widened from inside this session"）。
+→ **用户把 Lead 会话切到 full-access，不会追溯性地解禁 verifier 已启动的会话。**
+
+**因此本轮的方法与证据来源必须严格标注：**
+| 项 | 来源 | 标注 |
+|---|---|---|
+| `git diff b2b3dab 75ba8d04` 原始输出 | **Lead 代跑** | ⚠️ **非 verifier 亲测** |
+| `npm run tsc` = 0 / `npm run lint` = 0 | **Lead 代跑** | ⚠️ **非 verifier 亲测** |
+| 终态文件内容、类型声明、控制流判定 | **verifier 独立读码** | ✅ 独立验证 |
+
+> **本报告不得出现"verifier 亲测 tsc/lint 双绿"的表述。** 双绿由 Lead 实测，
+> verifier **采信但未复现**；verifier 的价值在于**用基线做控制流等价性判断**，这部分是独立的。
+
+## 10.1 复审方法（加性复核，逐层分离）
+verifier 手头有两层对照物：
+1. **`caaed5a` 之前的 T3 原文**（本会话早期 read 所得，已固化为 §1.2 基线）→ 判断 **T3 是否改了原始业务逻辑**
+2. **Lead 提供的 `b2b3dab → 75ba8d04` diff 原文** → 判断 **lint 层是否夹带业务改动**
+
+→ 二者相加即覆盖 `原始 → 75ba8d04` 全链路，可回答"是否只有日志/类型/风格改动"。
+
+## 10.2 ✅ Lead 唯一担心的点：`unref` 运行时守卫**保留**（verifier 独立读码确认）
+
+| 位置 | 终态代码 | 结论 |
+|---|---|---|
+| `runtimeLog.ts:227` | `if (typeof state.flushTimer?.unref == 'function') state.flushTimer.unref()` | ✅ **守卫保留** |
+| `runtimeLog.ts:730` | `if (typeof timer?.unref == 'function') timer.unref()` | ✅ **守卫保留** |
+
+- 两处**唯一改动**是把变量类型 `any` → `ReturnType<typeof setTimeout\|setInterval> \| null`，
+  并删掉随之多余的 `as any`。**运行时表达式逐字未变。**
+- **Hermes 无 `unref`**：若无条件调用会抛 `TypeError`。守卫在 ⇒ **真机安全** ✅
+- `stallWatchdog.ts:224` 的 `setInterval` **本来就没有 `unref`**（对照 §1.2 基线：原 247 行版本同样没有），
+  **不是本次删除的** —— verifier 已核对无遗漏。
+
+## 10.3 ✅ `\|\|` → `??` 的 4 处：类型核实为真等价（Lead 点 1，verifier 独立确认）
+
+Lead 判断这些变量"只可能是 `string | null`" —— verifier **独立核实类型声明**：
+
+| 表达式 | 变量声明（verifier 读码确认） | 可否为 `0`/`false` | 结论 |
+|---|---|---|---|
+| `playerEvent.ts:31` `prevTimeoutId ?? ''` | `playerEvent.ts:14` `let prevTimeoutId: string \| null = null` | ❌ 不可能 | ✅ 等价 |
+| `playerEvent.ts:168` 同上 | 同上 | ❌ | ✅ 等价 |
+| `core/player/player.ts:525` `playerListId ?? ''` | `types/player.d.ts:53` `playerListId: string \| null` | ❌ | ✅ 等价 |
+| `core/player/player.ts:674` 同上 | 同上 | ❌ | ✅ 等价 |
+
+**论证**：`\|\|` 与 `??` 仅在"左侧为 falsy 但非 nullish"时不同。
+对 `string | null`，falsy 值只有 `''` 与 `null` —— **两者在 `??` 下也分别得到原值/右侧值，
+结果完全相同**。**不存在 `0`/`false` 的可能**（类型层已排除） ⇒ **4 处全部等价** ✅
+
+## 10.4 ✅ 其余改动逐项等价性判定（verifier 独立读终态）
+
+| 改动 | 位置 | verifier 判定 |
+|---|---|---|
+| 补 `void` | `errorHandle.ts:41` `void flushSyncBestEffort()` | ✅ 等价。调用本身、参数、时机未变；仅标记"有意不等待"。**注**：该函数本就返回 Promise（见 §3 的 MEDIUM-1），故 `void` 不改变任何运行时行为 |
+| 补 `void` | `stallWatchdog.ts:199` `void flushSyncBestEffort()` | ✅ 同上 |
+| 补 `async` | `log.ts:104` `flushLogsSyncBestEffort`、`Log.tsx:90/121` `.then(async() => readLogFile())` | ✅ 等价。`readLogFile` 本身即 `async` 返回 `Promise<string>`（`runtimeLog.ts:640`），`async` 包装只是 adopt 内层 promise，**resolve 值与链位置不变**（仅多一个微任务 tick） |
+| 补花括号 | `log.ts:107` `setLogLevel`、`stallWatchdog.ts` `tick` | ✅ 纯语法 |
+| 删未使用导入 | `plugins/player/utils.ts:6` `{ info, warn, error }` → `{ info }` | ✅ 等价。**verifier 已核对 `warn`/`error` 在该文件内确无引用**（grep `as any`/`warn(`/`error(` 均无调用点） |
+| 类型断言替换 | `core/music/utils.ts:517, 552` `(… as any).promise` → `….promise` | ✅ **等价且是类型安全改进**。`as any` 是**改动前既有**的（对照 §1.2 基线原文 `:445`/`:480` 均为 `as any`），删除后由真实类型校验，**运行时无任何差异** |
+| `Object.keys` 断言 | `stallWatchdog.ts` `Object.keys(detail as Record<string, unknown>)` | ✅ 纯类型层（仅为满足 `no-unsafe-argument`），运行时同 `Object.keys` |
+| `eslint-disable` 注释 | `app.ts:64-65` `stopMemorySampling` | ✅ 控制流零改动（句柄保留但暂不调用，符合 Lead 约束） |
+| 无关既有修正 | `localFs.ts`、`utils/common.ts` | ✅ 不在本次交付范围；`common.ts` 仅删 1 空行 |
+
+## 10.5 ✅ Lead 点 2：`player.d.ts` 的 `listId` 放宽是否削弱保护？
+
+**结论：不会，且该放宽是修正而非放松。**
+
+| 证据 | 内容 |
+|---|---|
+| `types/player.d.ts:38` | `PlayMusicInfo.listId: string \| null`（**在 `b2b3dab` 中由 `string` 放宽**） |
+| `config/constant.ts:15` | `LIST_IDS.PLAY_LATER: null` ⇒ **该值确实是 `null`** |
+| `store/player/state.ts:48` | 初值 `listId: null` |
+| `types/player.d.ts:64` | `TempPlayListItem.listId: string \| null`（**同批已为 null 型**） |
+
+**论证**：
+1. 原声明 `string` 与**运行时真实值 `null`** 矛盾 —— 这是**类型谎言**，会导致
+   `null` 被当作 `string` 传递给下层，**反而掩盖真实的空值处理缺陷**。
+2. 放宽为 `string | null` 后，**strict 模式下所有消费点必须显式处理 `null`** ⇒ **保护是增强的**。
+3. 底层 `core/player/playInfo.ts` 的函数本就以 `string | null` 接收（Lead 已述，verifier 认可其依据，
+   且 `store/player/state.ts:10` `listId: LX.Player.PlayMusicInfo['listId'] | null` 亦印证）。
+4. **verifier 另核**：`player.d.ts:78` 的 `SavedPlayInfo.listId: string` **仍是 `string`**（未被放宽）——
+   这是**另一个类型**（播放进度持久化记录），与本次放宽无关，**verifier 未发现不一致**。
+
+> **⚠️ 仍需真机/运行确认的边界**：类型放宽**不产生运行时行为变化**，但它**放宽了编译期检查面**。
+> 若某处原本依赖"`listId` 必为 string"而**未做 null 判断**，放宽后**编译器不再报错**，
+> 缺陷会推迟到运行时暴露。**verifier 无法通过静态手段穷举所有消费点**（无 shell、无法全仓类型追踪）。
+> → 建议：**在真机上重点验证"稍后播放"（`PLAY_LATER`，即 `listId === null`）路径**
+> 的播放/切歌/进度保存是否正常。这是本次类型改动**唯一需要运行时确认**的点。
+
+## 10.6 ✅ Lead 点 3：加性复核 —— `caaed5a → 75ba8d04` 是否夹带业务逻辑改动？
+
+**结论：✅ 未夹带。** 逐层分离后的判定：
+
+| 层 | 范围 | verifier 判定 |
+|---|---|---|
+| **T3 业务层**（`caaed5a` 之前 → T3 终态） | 11 个文件 | ✅ §2 已逐字对照基线，**零业务分支改动**（1 处回归已修复） |
+| **lint/type 层**（`b2b3dab → 75ba8d04`） | 12 文件 | ✅ §10.3/10.4/10.5 逐项判定**全部等价**（类型/风格/`void`/`??`，无控制流改动） |
+| **`b2b3dab` 的 4 个文件** | `timeoutExit.ts`、`hook.ts`、`SourceSelector.tsx`、`player.d.ts` | ✅ 前 3 个**从未在任何 T2/T3/T4/T5 交付范围内**（非本次交付文件）；`player.d.ts` 见 §10.5 |
+| **无关既有修正** | `localFs.ts`、`utils/common.ts` | ✅ 不在交付范围 |
+
+**verifier 特别确认（T3 核心结论未被触碰）**：
+- ❌ **无任何新增 `try/catch`**（`plugins/player/index.ts` 的 `try {` 仍零命中）
+- ❌ **`.finally` 未被改成 `.catch`**（`core/player/player.ts` 的 `.finally(` 仍在）
+- ❌ **`await setStop()` 未加超时/未加 catch**
+- ❌ **`errorHandle.ts` 的 `Alert.alert` 行为未变**
+- ❌ **4 处 `??` 全部等价**（§10.3 类型已核实）
+- ✅ **`unref` 运行时守卫保留**（§10.2）
+
+## 10.7 本轮发现的问题
+
+| # | 严重度 | 问题 | 状态 |
+|---|---|---|---|
+| 7 | 🟢 提示 | verifier 的 shell 在本会话**始终不可用**，且**无法从内部放宽**（权限在启动时固定）。本轮全部 git/tsc/lint 证据为 **Lead 代跑**，verifier 未亲测 | ⚠️ 已如实标注（§10.0），**非代码问题** |
+| 8 | 🟡 低-中 | `player.d.ts` 的 `listId` 放宽**不产生运行时变化**，但**扩大了编译期检查面** → 若存在未做 null 判断的消费点，缺陷会推迟到运行时 | ⚠️ **需真机验证 `PLAY_LATER`（`listId === null`）路径**（§10.5） |
+
+**未发现任何新的控制流回归或崩溃风险。**
+
+## 10.8 本轮结论
+
+**✅ 通过。** `b2b3dab` + `75ba8d04` 的改动经 verifier 独立读码复审，**全部为类型/风格层，
+未改变任何运行时行为或控制流**：
+- `unref` 守卫保留（Lead 唯一担心点）✅ · 4 处 `??` 类型已核实等价 ✅
+- `player.d.ts` 放宽是**修正类型谎言**，保护增强而非削弱 ✅（但需真机验 `PLAY_LATER`）
+- `caaed5a → 75ba8d04` **未夹带业务逻辑改动** ✅ · T3 核心结论（无 try/catch、`.finally` 保留）**未被触碰** ✅
+- **门禁状态**：`npm run tsc` = 0、`npm run lint` = 0 —— **由 Lead 实测，verifier 采信但未复现** ⚠️
+
+**当前有效终态：`75ba8d04`。** §1.4/§2/§9 的结论经本轮复核后**继续成立**。
+
+> **复审轮次记录**（呼应在 §9.6 提出的流程建议）：
+> | 轮次 | 触发 | 范围 | 结论 |
+> |---|---|---|---|
+> | 基准 | — | T2/T3/T4/T5 全部 | ✅ |
+> | §9（第 1 轮增量） | `app.ts` 内存采样接入 | `app.ts` | ✅ |
+> | **§10（第 2 轮增量）** | `b2b3dab` + `75ba8d04`（tsc/lint 门禁） | 12 文件（T3 中 5 个） | ✅ |
+>
+> **教训**：`src/**` 的"冻结"在本会话**被打破了两次**，第二次是**必要的**（门禁查出真实类型错误）。
+> 这说明"验证后冻结"是**脆弱约定**；更稳妥的做法是**把门禁（tsc/lint）本身作为交付前置**，
+> 先让门禁绿，再做人工逻辑复审 —— 否则人工复审会被后续门禁修复反复作废。
