@@ -101,10 +101,10 @@ export const getDiagnostics = (): string => exportDiagnostics()
 export const flushLogs = async(): Promise<void> => flush()
 
 /** 透传：尽力立即落盘。可 await 以确认写完；不 await 则可能丢（见 runtimeLog 文档） */
-export const flushLogsSyncBestEffort = (): Promise<void> => flushSyncBestEffort()
+export const flushLogsSyncBestEffort = async(): Promise<void> => flushSyncBestEffort()
 
 /** 透传：设置最低输出等级 */
-export const setLogLevel = (level: RuntimeLogLevel): void => setLevel(level)
+export const setLogLevel = (level: RuntimeLogLevel): void => { setLevel(level) }
 
 /** 透传：读取当前最低输出等级 */
 export const getLogLevel = (): RuntimeLogLevel => getLevel()

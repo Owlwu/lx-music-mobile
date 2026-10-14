@@ -522,7 +522,7 @@ export const playNext = async(isAutoToggle = false): Promise<void> => {
     id: enterId,
     tempPlayListSize: playerState.tempPlayList.length,
     playedListSize: playerState.playedList.length,
-    listId: playerState.playInfo.playerListId || '',
+    listId: playerState.playInfo.playerListId ?? '',
   })
   if (playerState.tempPlayList.length) { // 如果稍后播放列表存在歌曲则直接播放改列表的歌曲
     const playMusicInfo = playerState.tempPlayList[0]
@@ -671,7 +671,7 @@ export const playPrev = async(isAutoToggle = false): Promise<void> => {
     isAutoToggle,
     id: playerState.playMusicInfo.musicInfo?.id,
     playedListSize: playerState.playedList.length,
-    listId: playerState.playInfo.playerListId || '',
+    listId: playerState.playInfo.playerListId ?? '',
   })
   const playMusicInfo = playerState.playMusicInfo
   if (playMusicInfo.musicInfo == null) {

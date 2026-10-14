@@ -37,7 +37,8 @@ const flushFatalContext = (source: string, detail: any) => {
     console.log('flushFatalContext failed', err)
   }
   // flushSyncBestEffort 内部自行 try/catch，不会抛出
-  flushSyncBestEffort()
+  // （显式 void：崩溃收尾路径无法 await，这里接受 best effort 的丢失窗口）
+  void flushSyncBestEffort()
 }
 
 const errorHandler = (e: Error, isFatal: boolean) => {

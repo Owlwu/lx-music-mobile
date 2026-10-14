@@ -50,7 +50,7 @@ const defaultOptions: Required<StallWatchdogOptions> = {
 const maxRecentEvents = 20
 
 let options: Required<StallWatchdogOptions> = { ...defaultOptions }
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
 let lastTickTime = 0
 let isRunning = false
 let stallCount = 0
@@ -117,7 +117,7 @@ const sanitizeDetail = (detail: any, depth = 0): any => {
     }
     const result: Record<string, any> = {}
     let count = 0
-    for (const key of Object.keys(detail)) {
+    for (const key of Object.keys(detail as Record<string, unknown>)) {
       if (count++ >= 20) break
       result[key] = sanitizeDetail((detail as Record<string, any>)[key], depth + 1)
     }
@@ -196,7 +196,7 @@ const handleTick = () => {
         recentEvents: recentEvents.slice(-5).map(e => `${e.timeText} ${e.name}${e.detail != null ? ` ${stringifyDetail(e.detail)}` : ''}`).join(' | '),
       })
       // 卡顿恢复后立即落盘，避免恢复瞬间再次卡死导致这条关键日志丢失
-      flushSyncBestEffort()
+      void flushSyncBestEffort()
       if (onStallHandler) onStallHandler(record)
     } else if (options.logHeartbeat) {
       info('HEARTBEAT', 'tick', { elapsedMs: elapsed, recentEventCount: recentEvents.length })
@@ -245,7 +245,7 @@ export const stop = (): void => {
 export const isStarted = (): boolean => isRunning
 
 /** 手动打点一次（用于那些不使用定时器的场景，例如后台恢复后立即校验） */
-export const tick = (): void => handleTick()
+export const tick = (): void => { handleTick() }
 
 /** 导出看门狗状态文本，供"应用空白"时一并展示 */
 export const getWatchdogSnapshot = (): string => {

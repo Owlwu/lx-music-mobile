@@ -87,7 +87,7 @@ export default memo(() => {
   const handleShowRuntimeLog = () => {
     if (isFetchingRuntimeLog) return
     setIsFetchingRuntimeLog(true)
-    void flushLogs().then(() => readLogFile()).then(text => {
+    void flushLogs().then(async() => readLogFile()).then(text => {
       if (isUnmountedRef.current) return
       setIsShowingRuntimeLog(true)
       refreshPaths()
@@ -118,7 +118,7 @@ export default memo(() => {
   }
 
   const handleShareLog = () => {
-    void flushLogs().then(() => readLogFile()).then(text => {
+    void flushLogs().then(async() => readLogFile()).then(text => {
       if (isUnmountedRef.current) return
       if (!text) {
         toast(t('setting_other_log_tip_null'))

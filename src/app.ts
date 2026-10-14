@@ -60,6 +60,8 @@ startWatchdog({ interval: 5000, stallThreshold: 20000 })
 // 注意：正式版 RN 通常无 performance.memory，此时 recordMemory() 降级为 no-op
 // 并只写一次 warn（runtimeLog.ts:691），那条 warn 本身就是有用的诊断信息。
 // 按约束**不调用**停止函数，也不加 AppState 启停逻辑：进程内持续采样。
+// 保留句柄供将来需要时停止采样，故对 no-unused-vars 显式豁免并说明原因。
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const stopMemorySampling = startMemorySampling(30000)
 info('BOOT', 'memory sampling started', {
   supported: isMemorySamplingSupported(),

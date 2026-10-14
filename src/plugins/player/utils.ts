@@ -3,7 +3,7 @@ import BackgroundTimer from 'react-native-background-timer'
 import { playMusic as handlePlayMusic } from './playList'
 import { existsFile, moveFile, privateStorageDirectoryPath, temporaryDirectoryPath } from '@/utils/fs'
 import { toast } from '@/utils/tools'
-import { info, warn, error } from '@/utils/runtimeLog'
+import { info } from '@/utils/runtimeLog'
 import { markEvent } from '@/utils/stallWatchdog'
 // import { PlayerMusicInfo } from '@/store/modules/player/playInfo'
 

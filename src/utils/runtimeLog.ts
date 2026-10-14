@@ -151,7 +151,7 @@ interface RuntimeLogState {
   isReady: boolean
   /** init 之前的日志，init 后回灌（与 bootLog 模式一致） */
   isInited: boolean
-  flushTimer: any
+  flushTimer: ReturnType<typeof setTimeout> | null
   /** 当前 runtime.log 的近似大小，用于免 IO 判断轮转 */
   currentSize: number
   isFlushing: boolean
@@ -224,7 +224,7 @@ const scheduleFlush = () => {
     void flush()
   }, state.options.flushInterval)
   // 若运行环境提供 unref（Node），不要让定时器拖住进程退出
-  if (typeof (state.flushTimer as any)?.unref == 'function') (state.flushTimer as any).unref()
+  if (typeof state.flushTimer?.unref == 'function') state.flushTimer.unref()
 }
 
 /**
@@ -355,7 +355,7 @@ const utf8ByteLength = (text: string): number => {
   return bytes
 }
 
-const doFlush = async (): Promise<void> => {
+const doFlush = async(): Promise<void> => {
   const { runtime, legacy } = getPaths()
   if (!state.isReady || !runtime) return
   if (state.isFlushing || state.isRotating) return
@@ -522,7 +522,7 @@ export const flush = async(): Promise<void> => {
  *   随进程一起消失 —— 这是 best effort 的固有限制，不要把它当作持久化保证。
  * - 降低丢失窗口的办法是调小 `flushInterval` / `flushBatchSize`。
  */
-export const flushSyncBestEffort = (): Promise<void> => {
+export const flushSyncBestEffort = async(): Promise<void> => {
   return safeRunAsync(async() => {
     clearFlushTimer()
     await doFlush()
@@ -718,7 +718,7 @@ export const isMemorySamplingSupported = (): boolean => getMemoryInfo() != null
  * @returns 停止函数（幂等，可重复调用）
  */
 export const startMemorySampling = (interval = 30000): (() => void) => {
-  let timer: any = null
+  let timer: ReturnType<typeof setInterval> | null = null
   safeRun(() => {
     recordMemory()
     timer = setInterval(() => {

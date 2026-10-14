@@ -74,10 +74,10 @@ const resolveExistingAbsPath = async(root: string, relPath: string): Promise<str
     // NFKC 用于兼容写法（例如半角 `!` 与全角 `！` 是两个不同的目录名）。
     const exact = names.includes(segment)
       ? segment
-      : names.find(name => name.normalize('NFC') === segment)
-        ?? names.find(name => name.normalize('NFD') === segment.normalize('NFD'))
-        ?? names.find(name => name.normalize('NFKC') === segment.normalize('NFKC'))
-        ?? null
+      : names.find(name => name.normalize('NFC') === segment) ??
+        names.find(name => name.normalize('NFD') === segment.normalize('NFD')) ??
+        names.find(name => name.normalize('NFKC') === segment.normalize('NFKC')) ??
+        null
     if (exact == null) return null
     current = `${current}/${exact}`
   }

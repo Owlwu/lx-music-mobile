@@ -28,7 +28,7 @@ export default () => {
       // 如果加载超时，则尝试刷新URL
       warn('PLAYBACK', 'loading timeout fired (25s)', {
         id: playerState.musicInfo.id,
-        prevTimeoutId: prevTimeoutId || '',
+        prevTimeoutId: prevTimeoutId ?? '',
         isPlayedStop: global.lx.isPlayedStop,
         isPlay: playerState.isPlay,
       })
@@ -165,7 +165,7 @@ export default () => {
   const handleSetPlayInfo = () => {
     info('PLAYBACK', 'musicToggled, reset load/retry state', {
       prevRetryNum: retryNum,
-      prevTimeoutId: prevTimeoutId || '',
+      prevTimeoutId: prevTimeoutId ?? '',
     })
     retryNum = 0
     prevTimeoutId = null
