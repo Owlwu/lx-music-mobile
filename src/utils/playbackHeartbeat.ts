@@ -64,11 +64,27 @@ interface HeartbeatBase {
   maxPlayTime: number
 }
 
-/** 惰性取模块：避免把播放器/初始化链路提前拉进启动路径，也避免循环依赖 */
-const tryRequire = (path: string): any => {
+/**
+ * 惰性取模块：避免把播放器/初始化链路提前拉进启动路径，也避免循环依赖。
+ *
+ * ⚠️ 必须用**字符串字面量** require：Metro 无法解析变量形式的 require，
+ * 会在打包时报 `Invalid call at line ...: require(path)` 并导致
+ * `:app:createBundleReleaseJsAndAssets` 失败（release 打包直接失败）。
+ * 字面量 require 依然是"调用时才求值"，因此惰性效果不变。
+ */
+const getProgressModule = (): any => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(path)
+    return require('@/core/init/player/playProgress')
+  } catch (err) {
+    return null
+  }
+}
+
+const getTrackPlayer = (): any => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('react-native-track-player')?.default ?? null
   } catch (err) {
     return null
   }
@@ -81,7 +97,7 @@ const tryRequire = (path: string): any => {
 const collectProgressState = (): Record<string, any> => {
   const extra: Record<string, any> = {}
   try {
-    const mod = tryRequire('@/core/init/player/playProgress')
+    const mod = getProgressModule()
     if (mod?.getProgressPollState) {
       const poll = mod.getProgressPollState()
       extra.pollArmSeq = poll.armSeq
@@ -126,7 +142,7 @@ const samplePlayer = async(base: HeartbeatBase, now: number) => {
   let buffered = -1
   let queueLen = -1
   try {
-    const TrackPlayer = tryRequire('react-native-track-player')?.default
+    const TrackPlayer = getTrackPlayer()
     if (!TrackPlayer) throw new Error('track-player module unavailable')
     const [state, pos, dur, buf, queue] = await Promise.all([
       TrackPlayer.getState(),

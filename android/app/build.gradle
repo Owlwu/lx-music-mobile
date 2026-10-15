@@ -205,3 +205,58 @@ dependencies {
 }
 
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
+
+/**
+ * 调试包 JS bundle 新鲜度检查
+ *
+ * 背景（真实踩坑）：`assembleDebug` **不会**自动打包 JS（debuggableVariants 默认包含 debug），
+ * 而是把 `src/main/assets/index.android.bundle` 这个文件**原样打进 APK**。
+ * 如果这个文件是旧的（例如上次手工 `npm run bundle-android` 留下的），
+ * 装出来的调试包会运行旧 JS —— APK 自身的版本号来自 package.json（是最新的），
+ * 但应用内 `process.versions.app` 来自 bundle（是旧的），于是出现
+ * 「安装包显示 1.9.1、进入应用显示 1.8.4」这种极易误判的现象，
+ * 更糟的是新加的日志/修复全部没有生效，排查时会被完全带偏。
+ *
+ * 这里在调试包构建前检查该文件相对 JS 源码是否过期，过期就打印醒目告警。
+ */
+def debugJsBundleFile = file("src/main/assets/index.android.bundle")
+
+def newestModifiedTime = { File target ->
+    if (target == null || !target.exists()) return 0L
+    if (!target.isDirectory()) return target.lastModified()
+    long newest = 0L
+    target.eachFileRecurse { f ->
+        if (f.isFile() && f.lastModified() > newest) newest = f.lastModified()
+    }
+    return newest
+}
+
+tasks.register("checkDebugJsBundleFreshness") {
+    doLast {
+        if (!debugJsBundleFile.exists()) {
+            logger.lifecycle("[debug-js] 未发现 ${debugJsBundleFile.name}：调试包将依赖 Metro dev server（npm start）。")
+            return
+        }
+        def jsRoot = rootProject.projectDir.parentFile
+        long newestSource = 0L
+        [new File(jsRoot, "src"), new File(jsRoot, "index.js"), new File(jsRoot, "package.json"), new File(jsRoot, "babel.config.js")].each { f ->
+            newestSource = Math.max(newestSource, newestModifiedTime(f))
+        }
+        if (newestSource > debugJsBundleFile.lastModified()) {
+            logger.warn("""
+[WARN] 调试包内嵌的 JS bundle 已过期！
+       bundle: ${debugJsBundleFile}  (${new Date(debugJsBundleFile.lastModified())})
+       最新源码改动时间: ${new Date(newestSource)}
+       调试包不会自动生成 JS，装到手机上运行的仍是旧 bundle（应用内显示的版本号也是旧的）。
+       请先执行：npm run bundle-android   （或使用 Metro：npm start + react-native run-android）
+""")
+        } else {
+            logger.lifecycle("[debug-js] 内嵌 JS bundle 新鲜（${new Date(debugJsBundleFile.lastModified())}）。")
+        }
+    }
+}
+
+// 只在构建调试包时检查（release 由 createBundleReleaseJsAndAssets 自动重新打包 JS）
+tasks.matching { it.name == "preDebugBuild" }.configureEach {
+    dependsOn "checkDebugJsBundleFreshness"
+}

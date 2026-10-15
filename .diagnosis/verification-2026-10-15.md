@@ -12,6 +12,36 @@
 | 全仓 lint | `npm run lint` | ✅ exit 0 |
 | Android 编译 | `cd android && gradlew.bat :app:compileDebugJavaWithJavac --offline` | ✅ `BUILD SUCCESSFUL`，exit 0；`.../javac/debug/.../diagnostics/DiagnosticsLog.class`、`DiagnosticsModule.class`、`DiagnosticsPackage.class` 均产出 |
 | Android 编译（追加修复后） | 同上，重新执行 | ✅ `BUILD SUCCESSFUL in 20s`，exit 0（`UtilsModule` 只有 deprecation 提示） |
+| **Release 打包** | `cd android && gradlew.bat assembleRelease --offline` | ✅ `BUILD SUCCESSFUL`，**exit 0**；产出 4 个架构包 + universal（`android/app/build/outputs/apk/release/`） |
+| **Release 产物内容校验** | 解包 `lx-music-mobile-v1.9.1-arm64-v8a.apk` → `assets/index.android.bundle` | ✅ 含 `playbackHeartbeat` / `PLAYBACK_SILENT` / `heartbeat gap` / `shareFile` / `lx diagnostics`，版本串 `1.9.1`（无 `1.8.4`） |
+| **Debug 打包** | `gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v8a --offline` | ✅ `BUILD SUCCESSFUL in 24s`，exit 0 |
+| **Debug 产物内容校验** | 解包 debug APK → `assets/index.android.bundle` | ✅ 10588533 字节（= 重新生成的 dev bundle），含新埋点与 `1.9.1` |
+| **陈旧 bundle 告警** | 把 bundle mtime 改旧后运行 `:app:checkDebugJsBundleFreshness` | ✅ 打印醒目 `[WARN] 调试包内嵌的 JS bundle 已过期！`（并已验证该任务挂在 `preDebugBuild` 上） |
+
+### 1.1 本轮修复的两个构建问题
+
+**问题 1：`assembleRelease` 失败（*用户报告的「pack 失败」*）**
+
+```
+Error: src\utils\playbackHeartbeat.ts:Invalid call at line 71: require(path)
+> Task :app:createBundleReleaseJsAndAssets FAILED
+```
+原因：`playbackHeartbeat.ts` 用了 `const tryRequire = (path) => require(path)` —— **Metro 无法解析变量形式的 require**。
+（debug 编译不打包 JS，所以只有 release 暴露。）
+修复：改为字符串字面量 require（`getProgressModule()` / `getTrackPlayer()`），保留惰性与 try/catch。
+验证：`assembleRelease` 通过，APK 内 bundle 含新代码。
+
+**问题 2：debug 包安装后应用内显示 1.8.4（*与 APK 版本 1.9.1 不一致*）**
+
+原因：`assembleDebug` **不生成 JS bundle**，而是把 `android/app/src/main/assets/index.android.bundle`
+**原样打进 APK**；该文件是 2026-09-11 手工 `npm run bundle-android` 留下的旧 dev bundle
+（当时 `package.json.version = 1.8.4`）。APK 版本号来自 `package.json`（构建时读取），
+应用内 `process.versions.app` 来自**内嵌 bundle**（打包 JS 时读取），于是两者不一致，
+而且**新加的埋点代码根本不在运行的 bundle 里**。
+修复：① 重新生成该 bundle（当前源码，dev 模式）；② 在 `android/app/build.gradle` 增加
+`checkDebugJsBundleFreshness`（挂在 `preDebugBuild`），bundle 比 JS 源码旧就打印醒目告警；
+③ 操作手册 5.5 节补充说明与校验方法。
+验证：debug APK 内嵌 bundle 已更新为 10588533 字节且含新代码；告警分支已用改 mtime 的方式实测触发。
 
 编译环境（实测）：AGP 8.6.1 / Gradle 8.8 / compileSdk 36 / buildTools 35.0.0 / JDK 17 / minSdk 21 / targetSdk 29；
 新增依赖 `androidx.localbroadcastmanager:localbroadcastmanager:1.1.0` 在本地 Gradle 缓存中，`--offline` 可直接解析。

@@ -267,6 +267,34 @@ cd android
 
 产物在 `android/app/build/outputs/apk/debug/`，不建议作为正式分发包。
 
+#### ⚠️ 调试包不会自动打包 JS（重要，曾导致误判）
+
+`assembleDebug` **不会**执行 Metro 打包，而是把
+`android/app/src/main/assets/index.android.bundle` 这个文件**原样打进 APK**。
+因此：
+
+- 该文件**不存在**时：调试包依赖 Metro（先 `npm start`，再用
+  `react-native run-android` 或直接启动应用并连接开发服务器）；
+- 该文件**存在但很旧**时：调试包会**静默运行旧 JS**。
+  现象是「安装包版本号是新的、进入应用后显示的版本号是旧的」——
+  因为 APK 版本号来自 `package.json`（构建时读取），
+  而应用内 `process.versions.app` 来自**内嵌的 JS bundle**（打包 JS 时读取）。
+  更麻烦的是：**新加的代码/修复也全部不存在**，排查会被完全带偏。
+
+所以要把调试包当作"可独立安装、无需 Metro"的包来用时，**每次改完 JS 都要先重新打包 JS**：
+
+```bash
+# 在仓库根目录执行；输出到 android/app/src/main/assets/index.android.bundle
+npm run bundle-android
+cd android && ./gradlew assembleDebug
+```
+
+为避免再次静默发生，`android/app/build.gradle` 里加了 `checkDebugJsBundleFreshness`：
+构建调试包时会比较 bundle 与 `src/`、`package.json` 的修改时间，过期即打印醒目告警。
+
+> 校验方法：安装后进入「设置 → 关于」，应用内版本号应与 APK 的版本号一致
+> （`package.json` 的 `version`）。不一致 ⇒ 内嵌的是旧 JS。
+
 ---
 
 ## 6. 错误对照表
@@ -287,6 +315,9 @@ cd android
 | `Duplicate resources` / 缓存异常 | 增量构建缓存损坏 | `cd android && ./gradlew clean` 后重新构建 |
 | `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | 手机上已装不同签名的同包名应用 | 先卸载旧应用：`adb uninstall cn.toside.music.mobile` |
 | 构建成功但目录无 APK | 输出被清理或任务选错 | 确认执行的是 `assembleRelease`，检查 `android/app/build/outputs/apk/release/` |
+| `Invalid call at line ...: require(...)`（`createBundleReleaseJsAndAssets` 失败） | JS 里出现**变量形式**的 `require`，Metro 无法静态解析 | 改成字符串字面量的 `require('xxx')`（惰性 require 也可，只要是字面量）；改完重跑 `assembleRelease` |
+| 安装包版本号与应用内版本号不一致（如 APK 1.9.1 / 应用内 1.8.4） | 调试包内嵌的 `src/main/assets/index.android.bundle` 是旧的 | 先 `npm run bundle-android` 再 `assembleDebug`；详见 5.5 |
+| 「分享日志」按钮导致应用崩溃（`Critical Error Occured !`） | 旧版本把整份日志塞进分享文本，超出 Binder 事务上限 | 升级到含修复的版本；旧版本请改用「查看运行时日志」/「复制诊断信息」 |
 
 ---
 
@@ -379,6 +410,8 @@ KEYSTORE_PASSWORD='你的强密码' bash scripts/pack-android.sh
 - [ ] `cd android && ./gradlew assembleRelease` 输出 `BUILD SUCCESSFUL`
 - [ ] `android/app/build/outputs/apk/release/` 下存在 `*.apk`
 - [ ] （可选）`adb install -r <apk>` 返回 `Success`
+- [ ] 安装后进入「设置 → 关于」，**应用内版本号与 APK 版本号一致**（= `package.json` 的 `version`）；
+      不一致说明内嵌的是旧 JS（调试包尤其容易，见 5.5）
 
 ---
 
