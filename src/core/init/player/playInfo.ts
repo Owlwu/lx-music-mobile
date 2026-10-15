@@ -1,20 +1,39 @@
 import { getPlayInfo } from '@/utils/data'
 import { getListMusics } from '@/core/list'
 import { playList, play } from '@/core/player/player'
+import { info, warn } from '@/utils/runtimeLog'
+import { markEvent } from '@/utils/stallWatchdog'
 
 
 export default async(setting: LX.AppSetting) => {
-  const info = await getPlayInfo()
+  const info_ = await getPlayInfo()
   global.lx.restorePlayInfo = null
-  if (!info?.listId || info.index < 0) return
+  if (!info_?.listId || info_.index < 0) {
+    info('BOOT', 'restore play info skipped (no saved play info)', { listId: info_?.listId ?? '', index: info_?.index ?? -1 })
+    return
+  }
 
-  const list = await getListMusics(info.listId)
-  if (!list[info.index]) return
-  global.lx.restorePlayInfo = info
+  // 恢复播放会 await playList() → handlePlay()：启动路径上最容易卡住的一段（原实现零日志）
+  info('BOOT', 'restore play info start', { listId: info_.listId, index: info_.index })
+  markEvent('boot:restorePlayInfo', { listId: info_.listId, index: info_.index })
+  const list = await getListMusics(info_.listId)
+  if (!list[info_.index]) {
+    warn('BOOT', 'restore play info skipped (index out of range)', { listId: info_.listId, index: info_.index, listLen: list.length })
+    return
+  }
+  global.lx.restorePlayInfo = info_
 
-  await playList(info.listId, info.index)
+  await playList(info_.listId, info_.index)
+  info('BOOT', 'restore play info done', {
+    listId: info_.listId,
+    index: info_.index,
+    isTempPlay: global.lx.restorePlayInfo == null,
+  })
 
-  if (setting['player.startupAutoPlay']) setTimeout(play)
+  if (setting['player.startupAutoPlay']) {
+    info('BOOT', 'restore play info: startupAutoPlay scheduled')
+    setTimeout(play)
+  }
 
 
   // if (!info.list || !info.list[info.index]) {

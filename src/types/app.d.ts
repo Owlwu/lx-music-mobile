@@ -18,6 +18,8 @@ import type { SettingScreenIds } from '@/screens/Home/Views/Setting'
 interface GlobalData {
   fontSize: number
   gettingUrlId: string
+  /** gettingUrlId 被置位的时刻（毫秒，0 表示当前没有闩锁） */
+  gettingUrlIdSince: number
 
   // event_app: AppType
   // event_list: ListType

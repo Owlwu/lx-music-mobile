@@ -192,6 +192,7 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
   }
   if (cancelDelayRetry) cancelDelayRetry()
   global.lx.gettingUrlId = createGettingUrlId(musicInfo)
+  global.lx.gettingUrlIdSince = Date.now()
   info('MUSIC_URL', 'setMusicUrl start', {
     id: musicInfo.id,
     isRefresh: !!isRefresh,
@@ -216,9 +217,11 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
     addDelayNextTimeout()
   }).finally(() => {
     if (musicInfo === playerState.playMusicInfo.musicInfo) {
+      const urlWaitMs = global.lx.gettingUrlIdSince ? Date.now() - global.lx.gettingUrlIdSince : 0
       global.lx.gettingUrlId = ''
+      global.lx.gettingUrlIdSince = 0
       clearLoadTimeout()
-      info('MUSIC_URL', 'setMusicUrl finally, load timeout cleared', { id: musicInfo.id })
+      info('MUSIC_URL', 'setMusicUrl finally, load timeout cleared', { id: musicInfo.id, urlWaitMs })
     }
     void flush()
   })

@@ -32,8 +32,17 @@ import java.io.File;
 import java.util.Locale;
 import java.util.Objects;
 
+import cn.toside.music.mobile.diagnostics.DiagnosticsLog;
+
 public class UtilsModule extends ReactContextBaseJavaModule {
   private final ReactApplicationContext reactContext;
+
+  /**
+   * 走 Intent.EXTRA_TEXT 分享的文本上限（字符）。
+   * Binder 事务上限约 1MB（实际更小），UTF-16 编码下 8 万字符约 160KB，留足安全余量；
+   * 超过则拒绝发送（大日志一律改用 {@link #shareFile}）。
+   */
+  private static final int MAX_SHARE_TEXT_CHARS = 80000;
 
   private int listenerCount = 0;
 
@@ -261,13 +270,83 @@ public class UtilsModule extends ReactContextBaseJavaModule {
     }).start();
   }
 
+  /**
+   * 通过 Intent 分享纯文本。**必须**做大小保护并吞掉异常。
+   *
+   * 背景（真实线上故障）：设置页「分享日志」原先会把整份运行时日志（主文件 + 2 个轮转备份，
+   * 最大约 1.5MB）塞进 {@link Intent#EXTRA_TEXT}，而 Binder 事务有大小上限
+   * （约 1MB，实际远小于此）。日志变大后 startActivity 抛出的异常无人接管，
+   * 被 react-native-exception-handler 的全局处理器接管界面 —— 用户看到
+   * "Critical Error Occured !" 且界面被 finish，只能杀进程重开。
+   *
+   * 因此：① 超过 {@link #MAX_SHARE_TEXT_CHARS} 直接放弃并记日志（JS 侧已改为文件分享）；
+   * ② 整段 try/catch，任何异常都只记日志，绝不外泄成"未捕获异常"。
+   */
   @ReactMethod
   public void shareText(String shareTitle, String title, String text) {
-    Intent shareIntent = new Intent(Intent.ACTION_SEND);
-    shareIntent.setType("text/plain");
-    shareIntent.putExtra(Intent.EXTRA_TEXT,text);
-    shareIntent.putExtra(Intent.EXTRA_SUBJECT, title);
-    Objects.requireNonNull(reactContext.getCurrentActivity()).startActivity(Intent.createChooser(shareIntent, shareTitle));
+    try {
+      String content = text == null ? "" : text;
+      if (content.length() > MAX_SHARE_TEXT_CHARS) {
+        Log.e("Utils", "shareText aborted: content too large (" + content.length() + " chars)");
+        DiagnosticsLog.log("SHARE", "shareText aborted, content too large chars=" + content.length());
+        return;
+      }
+      Intent shareIntent = new Intent(Intent.ACTION_SEND);
+      shareIntent.setType("text/plain");
+      shareIntent.putExtra(Intent.EXTRA_TEXT, content);
+      shareIntent.putExtra(Intent.EXTRA_SUBJECT, title);
+      startChooser(shareIntent, shareTitle);
+    } catch (Throwable t) {
+      Log.e("Utils", "shareText failed", t);
+      DiagnosticsLog.log("SHARE", "shareText failed: " + t.getClass().getSimpleName());
+    }
+  }
+
+  /**
+   * 以**文件**方式分享（EXTRA_STREAM + FileProvider content:// URI）。
+   *
+   * 大日志必须走这条路：文件不经过 Binder 事务传递，因此没有大小限制。
+   * FileProvider 已在 AndroidManifest 声明（authorities = "${applicationId}.provider"），
+   * file_paths.xml 里包含 cache-path，所以文件写在 CacheDir 即可。
+   */
+  @ReactMethod
+  public void shareFile(String shareTitle, String title, String filePath, String mimeType, Promise promise) {
+    try {
+      File file = new File(filePath);
+      if (!file.exists()) {
+        promise.reject("Utils", "shareFile: file does not exist '" + filePath + "'");
+        return;
+      }
+      String authority = reactContext.getPackageName() + ".provider";
+      Uri contentUri = FileProvider.getUriForFile(reactContext, authority, file);
+      Intent shareIntent = new Intent(Intent.ACTION_SEND);
+      shareIntent.setType(mimeType == null || mimeType.isEmpty() ? "text/plain" : mimeType);
+      shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
+      shareIntent.putExtra(Intent.EXTRA_SUBJECT, title);
+      shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+      startChooser(shareIntent, shareTitle);
+      promise.resolve(filePath);
+    } catch (Throwable t) {
+      Log.e("Utils", "shareFile failed", t);
+      DiagnosticsLog.log("SHARE", "shareFile failed: " + t.getClass().getSimpleName());
+      try {
+        promise.reject("Utils", t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage());
+      } catch (Throwable ignored) {
+        // promise 已经 settle 过，忽略
+      }
+    }
+  }
+
+  /** 统一的 chooser 启动：Activity 不可用时退回带 NEW_TASK 的 ApplicationContext。 */
+  private void startChooser(Intent intent, String shareTitle) {
+    Intent chooser = Intent.createChooser(intent, shareTitle);
+    Activity activity = getCurrentActivity();
+    if (activity != null) {
+      activity.startActivity(chooser);
+      return;
+    }
+    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    reactContext.startActivity(chooser);
   }
 
   // https://stackoverflow.com/questions/73463341/in-per-app-language-how-to-get-app-locale-in-api-33-if-system-locale-is-diffe

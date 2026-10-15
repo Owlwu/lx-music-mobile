@@ -48,6 +48,26 @@ export const shareText = async(shareTitle: string, title: string, text: string):
   UtilsModule.shareText(shareTitle, title, text)
 }
 
+/**
+ * 以文件方式分享（EXTRA_STREAM + FileProvider）。
+ *
+ * 为什么需要它：shareText 走 Intent.EXTRA_TEXT，而 Binder 事务有大小上限。
+ * 原先「分享日志」把整份日志（主文件 + 2 个轮转备份，最大约 1.5MB）塞进 EXTRA_TEXT，
+ * 日志变大后 startActivity 抛出的异常无人接管，被 react-native-exception-handler 的
+ * 全局处理器接管界面（弹 "Critical Error Occured !" 并结束界面，只能杀进程重开）。
+ * 文件不经过 Binder 传递，因此大小不受限 —— 大日志一律走这里。
+ *
+ * @returns 实际分享的文件路径
+ */
+export const shareFile = async(
+  shareTitle: string,
+  title: string,
+  filePath: string,
+  mimeType = 'text/plain',
+): Promise<string> => {
+  return UtilsModule.shareFile(shareTitle, title, filePath, mimeType)
+}
+
 export const getSystemLocales = async(): Promise<string> => {
   return UtilsModule.getSystemLocales()
 }

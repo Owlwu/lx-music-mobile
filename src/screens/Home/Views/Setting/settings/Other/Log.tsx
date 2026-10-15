@@ -1,13 +1,21 @@
 import { memo, useRef, useState, useEffect } from 'react'
 import { View } from 'react-native'
-import { getLogs, clearLogs, getLogPath, flushLogs, getDiagnostics } from '@/utils/log'
+import { getLogs, clearLogs, getLogPath, flushLogs } from '@/utils/log'
 import { clearLogFiles, readLogFile, runtimeLogPath } from '@/utils/runtimeLog'
+import {
+  buildFullDiagnostics,
+  writeFullDiagnosticsToFile,
+  clipboardBudget,
+  maxClipboardChars,
+  clipText,
+  tailClip,
+} from '@/utils/diagnostics'
 // import { gzip, ungzip } from 'pako'
 
 import SubTitle from '../../components/SubTitle'
 import Button from '../../components/Button'
 import { createStyle, toast, clipboardWriteText, confirmDialog } from '@/utils/tools'
-import { shareText } from '@/utils/nativeModules/utils'
+import { shareText, shareFile } from '@/utils/nativeModules/utils'
 import ConfirmAlert, { type ConfirmAlertType } from '@/components/common/ConfirmAlert'
 import CheckBoxItem from '../../components/CheckBoxItem'
 import { useI18n } from '@/lang'
@@ -19,6 +27,9 @@ const splitLegacyLog = (log: string) => {
   logArr.reverse()
   return logArr.join('\n\n').replace(/^\n+|\n+$/, '')
 }
+
+/** 「查看运行时日志」弹窗最多渲染多少字符：日志最大可达 1.5MB，全量渲染会让界面明显卡顿 */
+const maxRuntimeLogViewChars = 200000
 
 export default memo(() => {
   const t = useI18n()
@@ -84,6 +95,8 @@ export default memo(() => {
   }
 
   // 查看运行时日志（落盘文件全文 + 备份）。先 flush 保证包含刚刚产生的日志。
+  // 显示层做长度裁剪：日志可达 1.5MB，直接塞进 <Text> 会让界面明显卡顿；
+  // 完整内容请用「分享日志」（文件方式）。
   const handleShowRuntimeLog = () => {
     if (isFetchingRuntimeLog) return
     setIsFetchingRuntimeLog(true)
@@ -91,7 +104,7 @@ export default memo(() => {
       if (isUnmountedRef.current) return
       setIsShowingRuntimeLog(true)
       refreshPaths()
-      setLogText(text ? text.replace(/^\n+|\n+$/, '') : '')
+      setLogText(text ? tailClip(text.replace(/^\n+|\n+$/g, ''), maxRuntimeLogViewChars) : '')
       alertRef.current?.setVisible(true)
     }).catch(() => {
       if (isUnmountedRef.current) return
@@ -103,30 +116,64 @@ export default memo(() => {
     })
   }
 
-  // 诊断信息 = 运行时日志状态 + 最近日志 + error.log 路径，供反馈问题时整段复制
+  // 诊断信息 = 即时状态 + 内存缓冲 + **落盘日志（跨多次启动）** + 原生侧日志。
+  //
+  // 注意这里不再使用旧的 getDiagnostics()：旧实现只导出"当前进程内存缓冲"，
+  // 而用户遇到问题时习惯先重启应用，于是故障那一次进程的记录完全丢失，
+  // 导出的日志里只剩重启后的几行启动日志（这正是之前三份日志无法排查的原因）。
+  //
+  // 同时必须限制导出体积：剪贴板同样有大小上限，超大文本还会拖慢系统。
+  // 完整日志请点「分享日志」（文件方式，不受大小限制）。
   const handleCopyDiagnostics = () => {
-    void flushLogs().then(() => {
-      if (isUnmountedRef.current) return
-      const text = [
-        getDiagnostics(),
-        '',
-        `error.log: ${getLogPath() || '[unavailable]'}`,
-      ].join('\n')
-      clipboardWriteText(text)
-      toast(t('copy_name_tip'))
-    })
+    void flushLogs()
+      .then(async() => buildFullDiagnostics(clipboardBudget))
+      .then((text) => {
+        if (isUnmountedRef.current) return
+        const clipped = clipText(text, maxClipboardChars)
+        try {
+          clipboardWriteText(clipped)
+        } catch (err) {
+          toast(t('setting_other_log_tip_read_failed'))
+          return
+        }
+        toast(clipped.length < text.length ? t('setting_other_log_tip_truncated') : t('copy_name_tip'))
+      })
+      .catch(() => {
+        if (isUnmountedRef.current) return
+        toast(t('setting_other_log_tip_read_failed'))
+      })
   }
 
+  // 「分享日志」：改为**文件分享**，这是修复"点分享日志直接把应用打死"的关键。
+  // 原实现把整份日志（主文件 + 2 个轮转备份，最大约 1.5MB）塞进 Intent.EXTRA_TEXT，
+  // 而 Binder 事务有大小上限：日志变大后 startActivity 抛出的异常无人接管，
+  // 被 react-native-exception-handler 的全局处理器接管界面 —— 用户看到
+  // "Critical Error Occured !"、界面被 finish，只能杀进程重开。
+  // 文件走 FileProvider（content://），不经过 Binder，因此没有大小限制。
   const handleShareLog = () => {
-    void flushLogs().then(async() => readLogFile()).then(text => {
-      if (isUnmountedRef.current) return
-      if (!text) {
-        toast(t('setting_other_log_tip_null'))
-        return
-      }
-      const content = `${t('setting_other_log_share_desc')}\n${runtimeLogPath()}\n\n${text.replace(/^\n+|\n+$/, '')}`
-      void shareText(t('setting_other_log_share_title'), t('setting_other_log_share_title'), content)
-    })
+    void flushLogs()
+      .then(async() => writeFullDiagnosticsToFile())
+      .then(async({ path }) => {
+        if (isUnmountedRef.current) return
+        try {
+          await shareFile(t('setting_other_log_share_title'), t('setting_other_log_share_title'), path, 'text/plain')
+          return
+        } catch (err) {
+          // 文件分享不可用（例如设备上没有可接收的应用）：退化为受限长度的文本分享
+        }
+        if (isUnmountedRef.current) return
+        const fallback = clipText(await buildFullDiagnostics(clipboardBudget), maxClipboardChars)
+        await shareText(
+          t('setting_other_log_share_title'),
+          t('setting_other_log_share_title'),
+          `${t('setting_other_log_share_desc')}\n${path}\n\n${fallback}`,
+        )
+        toast(t('setting_other_log_tip_truncated'))
+      })
+      .catch(() => {
+        if (isUnmountedRef.current) return
+        toast(t('setting_other_log_tip_share_failed'))
+      })
   }
 
   // 破坏性操作：删除运行时日志文件，先二次确认（用户可能想保留证据）

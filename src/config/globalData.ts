@@ -51,6 +51,11 @@ global.lx = {
 
   gettingUrlId: '',
 
+  // gettingUrlId 被置位的时刻（毫秒）。用于量化"取链接闩锁"持续了多久 ——
+  // 该闩锁存在期间，TP 的全部状态事件都会被 service.ts 的 guard 丢弃，
+  // 表现为"没有声音、进度不动、切歌无效"，因此必须能算出它的年龄。
+  gettingUrlIdSince: 0,
+
   qualityList: {},
   apis: {},
   apiInitPromise: [Promise.resolve(false), true, () => {}],

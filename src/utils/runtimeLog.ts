@@ -151,7 +151,11 @@ interface RuntimeLogState {
   isReady: boolean
   /** init 之前的日志，init 后回灌（与 bootLog 模式一致） */
   isInited: boolean
-  flushTimer: ReturnType<typeof setTimeout> | null
+  /** 统一按 number 保存：background timer 与 RN 定时器都返回数字 id，
+   * 但 TS 环境下 `ReturnType<typeof setTimeout>` 可能是 NodeJS.Timeout，故显式收窄。 */
+  flushTimer: number | null
+  /** flush 定时器由哪套定时器提供：后台必须用原生定时器，详见 scheduleFlush */
+  flushTimerKind: 'none' | 'background' | 'js'
   /** 当前 runtime.log 的近似大小，用于免 IO 判断轮转 */
   currentSize: number
   isFlushing: boolean
@@ -173,6 +177,7 @@ const state: RuntimeLogState = {
   isReady: false,
   isInited: false,
   flushTimer: null,
+  flushTimerKind: 'none',
   currentSize: 0,
   isFlushing: false,
   isRotating: false,
@@ -211,20 +216,81 @@ export const legacyLogPath = (): string => getPaths().legacy
 
 const backupPathOf = (path: string, index: number) => `${path}.${index}`
 
-const clearFlushTimer = () => {
-  if (state.flushTimer == null) return
-  clearTimeout(state.flushTimer)
-  state.flushTimer = null
+/**
+ * 会话标识：每次 JS 进程启动生成一个。
+ *
+ * 为什么需要它：本模块的日志文件跨进程累积（同一次安装会留下多次启动的记录），
+ * 而"故障发生的那一次启动"必须能被明确指认出来——否则跨会话导出后，
+ * 读者无法判断哪一段属于出问题的那次运行、上一次是否正常退出。
+ */
+const sessionId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+const sessionStartTime = Date.now()
+
+/** 当前会话 id（跨会话日志中用于定位"这一次启动"） */
+export const getSessionId = (): string => sessionId
+/** 当前会话开始时间（毫秒时间戳） */
+export const getSessionStartTime = (): number => sessionStartTime
+
+/**
+ * 后台可用的定时器。
+ *
+ * 背景（本文件最关键的一处修复）：RN 在 App 退到后台时会**暂停全部 JS 定时器**
+ * （ReactAndroid JavaTimerManager.onHostPause() → isPaused=true，
+ * setTimeout/setInterval/requestAnimationFrame 在后台完全不触发）。
+ * 而"长时间后台播放后挂掉"恰恰是唯一需要日志的场景：若 flush 仍由 setTimeout 调度，
+ * 后台期间产生的日志只会停在内存里，进程一旦被系统杀掉就全部丢失——
+ * 这正是"导出的日志里故障窗口完全空白"的机制。
+ *
+ * react-native-background-timer 走原生 Handler + 事件回调
+ * （node_modules/react-native-background-timer/android/.../BackgroundTimerModule.java:71-80），
+ * 不受该暂停影响，因此 flush 优先用它；取不到时降级为普通 setTimeout（前台照常工作）。
+ */
+interface BackgroundTimerLike {
+  setTimeout: (callback: () => void, timeout: number) => number
+  clearTimeout: (id: number) => void
 }
 
-const scheduleFlush = () => {
+let backgroundTimerModule: BackgroundTimerLike | null | undefined
+
+const getBackgroundTimer = (): BackgroundTimerLike | null => {
+  if (backgroundTimerModule !== undefined) return backgroundTimerModule
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('react-native-background-timer')
+    const timer = (mod?.default ?? mod) as Partial<BackgroundTimerLike> | undefined
+    backgroundTimerModule = typeof timer?.setTimeout == 'function' && typeof timer?.clearTimeout == 'function'
+      ? timer as BackgroundTimerLike
+      : null
+  } catch (err) {
+    backgroundTimerModule = null
+  }
+  return backgroundTimerModule
+}
+
+const clearFlushTimer = () => {
+  if (state.flushTimer == null) return
+  if (state.flushTimerKind == 'background') getBackgroundTimer()?.clearTimeout(state.flushTimer)
+  else clearTimeout(state.flushTimer)
+  state.flushTimer = null
+  state.flushTimerKind = 'none'
+}
+
+const scheduleFlush = (delayMs?: number) => {
   if (state.flushTimer != null) return
-  state.flushTimer = setTimeout(() => {
+  const interval = delayMs ?? state.options.flushInterval
+  const onTimer = () => {
     state.flushTimer = null
+    state.flushTimerKind = 'none'
     void flush()
-  }, state.options.flushInterval)
-  // 若运行环境提供 unref（Node），不要让定时器拖住进程退出
-  if (typeof state.flushTimer?.unref == 'function') state.flushTimer.unref()
+  }
+  const backgroundTimer = getBackgroundTimer()
+  if (backgroundTimer) {
+    state.flushTimerKind = 'background'
+    state.flushTimer = backgroundTimer.setTimeout(onTimer, interval)
+  } else {
+    state.flushTimerKind = 'js'
+    state.flushTimer = setTimeout(onTimer, interval) as unknown as number
+  }
 }
 
 /**
@@ -418,7 +484,10 @@ const doFlush = async(): Promise<void> => {
     }
   } finally {
     state.isFlushing = false
-    if (state.pending.length >= state.options.flushBatchSize || state.legacyPending.length >= state.options.flushBatchSize) scheduleFlush()
+    // 只要还有未落盘内容就继续调度。
+    // 原实现仅在"攒够一批"时调度：并发 flush 之后剩余的内容会一直留在内存里，
+    // 后台进程被系统杀掉时这些日志全部丢失。
+    if (state.pending.length || state.legacyPending.length) scheduleFlush()
   }
 }
 
@@ -447,9 +516,15 @@ const pushEntry = (level: RuntimeLogLevel, tag: string, message: string, fields?
   if (!state.isReady) return
   if (state.pending.length >= state.options.flushBatchSize) {
     void flush()
-  } else {
-    scheduleFlush()
+    return
   }
+  // warn/error 直接落盘：doFlush 不依赖任何定时器，因此在后台（JS 定时器被系统暂停）
+  // 也能真正写文件。普通 info/debug 只调度 flush 定时器。
+  if (levelWeight[level] >= levelWeight.warn) {
+    void flush()
+    return
+  }
+  scheduleFlush()
 }
 
 const resolveArgs = (args: any[]): { message: string, fields?: Record<string, any> } => {
@@ -475,6 +550,76 @@ const write = (level: RuntimeLogLevel, tag: string, args: any[]) => {
 }
 
 /**
+ * 只进内存缓冲、不写盘的原始行注入。
+ *
+ * 用途：把"上一次会话"的文件内容复制进本次会话的内存缓冲。
+ * 为什么不写盘：这些内容本来就已经在文件里，重复写入只会让文件翻倍。
+ */
+const pushRawEntry = (level: RuntimeLogLevel, tag: string, text: string) => {
+  const time = Date.now()
+  const entry: RuntimeLogEntry = {
+    time,
+    timeText: formatTimeText(time),
+    level,
+    tag,
+    text,
+  }
+  state.entries.push(entry)
+  if (state.entries.length > state.options.maxMemoryEntries) {
+    state.entries.splice(0, state.entries.length - state.options.maxMemoryEntries)
+  }
+}
+
+const sessionStartMark = '[SESSION] session start'
+const sessionEndMark = '[SESSION] session end'
+
+/**
+ * 分析"上一次会话"是否正常结束，并取出它最后的若干行。
+ *
+ * 为什么必须做这件事：设置页的「复制诊断信息」只导出**当前进程的内存缓冲**。
+ * 用户遇到"应用空白/不播放"时的习惯做法是杀掉应用重开再看日志——一旦重开，
+ * 上一次进程（也就是出故障的那一次）的现场就完全消失了。
+ * 这里在启动时从落盘文件里把上一次会话的尾巴捞回来，注入本次内存缓冲，
+ * 于是即使只点「复制诊断信息」，也能看到上一次启动的记录。
+ */
+const analyzePreviousSession = async(path: string): Promise<{
+  unclean: boolean
+  prevSessionId: string
+  prevStartText: string
+  tail: string[]
+} | null> => {
+  try {
+    const isExists = await existsFile(path).catch(() => false)
+    if (!isExists) return null
+    const text = await readFile(path).catch(() => '')
+    if (!text) return null
+    const lines = text.split('\n')
+    let lastStart = -1
+    let lastEnd = -1
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lastStart < 0 && lines[i].includes(sessionStartMark)) lastStart = i
+      if (lastEnd < 0 && lines[i].includes(sessionEndMark)) lastEnd = i
+      if (lastStart >= 0 && lastEnd >= 0) break
+    }
+    if (lastStart < 0) return null
+    const idMatch = /\bid=(\S+)/.exec(lines[lastStart])
+    // 最后一次 start 之后没有 end → 上一次是非正常结束（被杀/被冻结/崩溃）
+    const unclean = lastEnd < lastStart
+    const tail = lines
+      .slice(Math.max(lastStart + 1, lines.length - 80))
+      .filter(line => line.trim() !== '')
+    return {
+      unclean,
+      prevSessionId: idMatch ? idMatch[1] : '',
+      prevStartText: lines[lastStart],
+      tail,
+    }
+  } catch (err) {
+    return null
+  }
+}
+
+/**
  * 初始化日志文件。可安全重复调用。
  * init 之前产生的日志会保留在内存队列中，init 后统一回灌到文件。
  */
@@ -489,6 +634,8 @@ export const init = async(options?: RuntimeLogOptions): Promise<void> => {
     state.currentSize = await readSize(runtime)
     // 旧 error.log 也确保存在（设置页直接读它）
     if (legacy) await ensureFileReady(legacy)
+    // 读取上一次会话的信息（必须在写入本次会话标记之前完成）
+    const previousSession = await analyzePreviousSession(runtime)
     // 回灌 init 之前的日志
     state.isInited = true
     if (state.pending.length || state.legacyPending.length) await flush()
@@ -498,7 +645,28 @@ export const init = async(options?: RuntimeLogOptions): Promise<void> => {
       maxFileSize: state.options.maxFileSize,
       maxBackupCount: state.options.maxBackupCount,
       minLevel: state.options.minLevel,
+      flushTimer: getBackgroundTimer() ? 'background' : 'js',
     })
+    pushEntry('info', 'SESSION', 'session start', {
+      id: sessionId,
+      fileSizeAtStart: state.currentSize,
+      prevSessionId: previousSession?.prevSessionId ?? '',
+    })
+    if (previousSession) {
+      if (previousSession.unclean) {
+        warn('SESSION', 'previous session did not end cleanly (killed, frozen or crashed)', {
+          prevSessionId: previousSession.prevSessionId,
+          prevStartAt: previousSession.prevStartText,
+          tailLines: previousSession.tail.length,
+        })
+        // 把上一次会话的尾部注入内存缓冲：这样「复制诊断信息」（只含内存）也能看到故障现场
+        pushRawEntry('warn', 'PREV_SESSION', `----- begin previous session tail (id=${previousSession.prevSessionId}, lines=${previousSession.tail.length}) -----`)
+        for (const line of previousSession.tail) pushRawEntry('info', 'PREV_SESSION_RAW', line)
+        pushRawEntry('warn', 'PREV_SESSION', '----- end previous session tail -----')
+      } else {
+        info('SESSION', 'previous session ended cleanly', { prevSessionId: previousSession.prevSessionId })
+      }
+    }
     await flush()
   })
 }
@@ -592,19 +760,42 @@ export const exportDiagnostics = (): string => {
   const lines = [
     '===== lx runtime log diagnostics =====',
     `export time: ${formatTimeText(Date.now())}`,
+    `session id: ${sessionId}`,
+    `session uptime: ${Date.now() - sessionStartTime}ms`,
     `log path: ${runtime || '[unavailable]'}`,
     `level: ${state.options.minLevel}`,
     `inited: ${state.isInited}`,
     `file ready: ${state.isReady}`,
+    `flush timer: ${state.flushTimerKind}`,
     `memory entries: ${state.entries.length} / ${state.options.maxMemoryEntries}`,
     `pending entries: ${state.pending.length}`,
     `approx file size: ${state.currentSize}`,
     `write failures: ${state.writeFailureCount}`,
-    '===== recent logs =====',
+    // 注意：这里只有"本次进程"的内存缓冲。上一次启动（往往才是出故障的那一次）
+    // 的记录需要通过 buildFullDiagnostics()（设置页「分享日志」/「复制诊断信息」）导出，
+    // 或在本次启动时由 analyzePreviousSession() 注入到下方缓冲中。
+    '===== recent logs (current process memory buffer only) =====',
     getSnapshot(),
     '===== end =====',
   ]
   return lines.join('\n')
+}
+
+/**
+ * 标记"本次会话正常结束"并落盘。
+ *
+ * 下一次启动时 analyzePreviousSession() 依赖这个标记判断上一次是否为非正常结束
+ * （被系统杀掉/被冻结/崩溃都不会有这一行）。请在应用真正退出前调用。
+ */
+export const markCleanExit = async(reason: string): Promise<void> => {
+  return safeRunAsync(async() => {
+    info('SESSION', 'session end', {
+      id: sessionId,
+      reason,
+      uptimeMs: Date.now() - sessionStartTime,
+    })
+    await flush()
+  })
 }
 
 /** 清空内存缓冲与待写队列（清文件请用 clearLogFiles） */
@@ -823,6 +1014,9 @@ export const runtimeLog = {
   getEntries,
   getSnapshot,
   exportDiagnostics,
+  getSessionId,
+  getSessionStartTime,
+  markCleanExit,
   clear,
   clearLogFiles,
   readLogFile,

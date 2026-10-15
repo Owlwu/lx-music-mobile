@@ -60,6 +60,35 @@ let onStallHandler: ((record: StallRecord) => void) | null = null
 /** 最近关键事件环形缓冲，最新的在末尾 */
 const recentEvents: WatchdogEvent[] = []
 
+/**
+ * 前后台状态跟踪。
+ *
+ * 为什么必须跟踪：RN 在 App 退到后台时会**暂停全部 JS 定时器**
+ * （ReactAndroid JavaTimerManager.onHostPause() → isPaused=true），
+ * 因此回到前台后的第一跳必然看到"整段后台时长"的间隔。
+ * 那不是 JS 卡顿。若不区分，每次后台超过阈值都会写一条 error 级假 [STALL]，
+ * 真正的卡死信号会被淹没在噪音里。
+ */
+let lastAppState = 'unknown'
+let backgroundSince = 0
+/** 最近一次"后台 → 前台"的区间（用于判断 gap 是否落在后台期间） */
+let lastBackgroundPeriod: { from: number, to: number } | null = null
+
+/** 由 app.ts 的 AppState 监听调用，让看门狗能区分"后台暂停"与"JS 卡死" */
+export const noteAppState = (appState: string): void => {
+  safeRun(() => {
+    if (appState == 'active') {
+      if (backgroundSince) {
+        lastBackgroundPeriod = { from: backgroundSince, to: Date.now() }
+        backgroundSince = 0
+      }
+    } else if (!backgroundSince) {
+      backgroundSince = Date.now()
+    }
+    lastAppState = appState
+  })
+}
+
 const pad = (num: number, len = 2) => num.toString().padStart(len, '0')
 
 const formatTimeText = (time: number) => {
@@ -176,28 +205,48 @@ const handleTick = () => {
     const now = Date.now()
     const elapsed = now - lastTickTime
     if (lastTickTime !== 0 && elapsed > options.stallThreshold) {
-      stallCount++
       const lastEvent = recentEvents.length ? recentEvents[recentEvents.length - 1] : null
-      const record: StallRecord = {
-        duration: elapsed,
-        lastTickTime,
-        recoveredTime: now,
-        lastEvent,
+      // gap 是否可由"后台暂停 JS 定时器"解释：
+      // 当前仍在后台，或该区间内发生过后台→前台切换。
+      const isHostPauseSuspend = backgroundSince !== 0 ||
+        (lastBackgroundPeriod != null && lastBackgroundPeriod.to >= lastTickTime)
+      if (isHostPauseSuspend) {
+        // 预期行为，不是故障。降级为 info，避免每次后台都写一条 error 级假 STALL。
+        info('WATCHDOG', 'timer gap explained by host pause (RN suspends JS timers in background)', {
+          durationMs: elapsed,
+          lastTickAt: formatTimeText(lastTickTime),
+          recoveredAt: formatTimeText(now),
+          lastAppState,
+          backgroundSince: backgroundSince ? formatTimeText(backgroundSince) : '',
+          // 真正"JS 被卡住/进程被冻结"的证据由 playbackHeartbeat 提供：
+          // 它用原生定时器（后台仍然触发），普通 setInterval 在后台根本不走。
+          note: 'see [HEARTBEAT] gap entries for real JS blocks',
+        })
+      } else {
+        stallCount++
+        const record: StallRecord = {
+          duration: elapsed,
+          lastTickTime,
+          recoveredTime: now,
+          lastEvent,
+        }
+        lastStall = record
+        // 用 error 等级，保证在设置成较高等级时也一定被记录
+        error('STALL', `JS thread blocked for ${elapsed}ms`, {
+          durationMs: elapsed,
+          lastTickAt: formatTimeText(lastTickTime),
+          recoveredAt: formatTimeText(now),
+          stallCount,
+          reason: 'js-blocked-foreground',
+          lastAppState,
+          lastEvent: lastEvent ? `${lastEvent.name} @ ${lastEvent.timeText}` : 'none',
+          lastEventDetail: lastEvent?.detail != null ? stringifyDetail(lastEvent.detail) : undefined,
+          recentEvents: recentEvents.slice(-5).map(e => `${e.timeText} ${e.name}${e.detail != null ? ` ${stringifyDetail(e.detail)}` : ''}`).join(' | '),
+        })
+        // 卡顿恢复后立即落盘，避免恢复瞬间再次卡死导致这条关键日志丢失
+        void flushSyncBestEffort()
+        if (onStallHandler) onStallHandler(record)
       }
-      lastStall = record
-      // 用 error 等级，保证在设置成较高等级时也一定被记录
-      error('STALL', `JS thread blocked for ${elapsed}ms`, {
-        durationMs: elapsed,
-        lastTickAt: formatTimeText(lastTickTime),
-        recoveredAt: formatTimeText(now),
-        stallCount,
-        lastEvent: lastEvent ? `${lastEvent.name} @ ${lastEvent.timeText}` : 'none',
-        lastEventDetail: lastEvent?.detail != null ? stringifyDetail(lastEvent.detail) : undefined,
-        recentEvents: recentEvents.slice(-5).map(e => `${e.timeText} ${e.name}${e.detail != null ? ` ${stringifyDetail(e.detail)}` : ''}`).join(' | '),
-      })
-      // 卡顿恢复后立即落盘，避免恢复瞬间再次卡死导致这条关键日志丢失
-      void flushSyncBestEffort()
-      if (onStallHandler) onStallHandler(record)
     } else if (options.logHeartbeat) {
       info('HEARTBEAT', 'tick', { elapsedMs: elapsed, recentEventCount: recentEvents.length })
     }
@@ -278,6 +327,7 @@ export const stallWatchdog = {
   isStarted,
   tick,
   markEvent,
+  noteAppState,
   getRecentEvents,
   getLastStall,
   getStallCount,

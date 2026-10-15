@@ -1,6 +1,8 @@
 import { isActive } from '@/utils/tools'
+import { AppState } from 'react-native'
 import { useEffect, useState } from 'react'
 import state, { type InitState } from './state'
+import { info } from '@/utils/runtimeLog'
 
 export const usePlayerMusicInfo = () => {
   const [value, update] = useState(state.musicInfo)
@@ -67,13 +69,33 @@ export const useIsPlay = () => {
   return value
 }
 
+/**
+ * 渲染存活标记的节流间隔（毫秒）。
+ * 这条日志是"React 树是否还在更新"的唯一直接证据：
+ * 心跳仍在（JS 活着）但这里长时间没有输出 ⇒ 界面已经不渲染了（用户看到的"空白"）。
+ */
+const renderLogInterval = 5000
+let lastRenderLogAt = 0
+
 export const useProgress = (autoUpdate = true) => {
   const [value, update] = useState(state.progress)
 
   useEffect(() => {
     if (!autoUpdate) return
     const handleUpdate = (progress: InitState['progress']) => {
-      if (isActive()) update(progress)
+      if (isActive()) {
+        const now = Date.now()
+        if (state.isPlay && now - lastRenderLogAt >= renderLogInterval) {
+          lastRenderLogAt = now
+          info('RENDER', 'progress rendered', {
+            nowPlayTime: Math.round(progress.nowPlayTime),
+            maxPlayTime: Math.round(progress.maxPlayTime),
+            appState: AppState.currentState,
+            trackId: global.lx.playerTrackId || '',
+          })
+        }
+        update(progress)
+      }
     }
     update(state.progress)
     global.state_event.on('playProgressChanged', handleUpdate)

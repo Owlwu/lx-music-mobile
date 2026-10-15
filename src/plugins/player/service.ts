@@ -7,6 +7,7 @@ import { isTempId, isEmpty } from './utils'
 import { exitApp } from '@/core/common'
 import { getCurrentTrackId } from './playList'
 import { pause, play, playNext, playPrev } from '@/core/player/player'
+import playerState from '@/store/player/state'
 import { info, warn, error, flush } from '@/utils/runtimeLog'
 import { markEvent } from '@/utils/stallWatchdog'
 
@@ -75,18 +76,21 @@ const registerPlaybackService = async() => {
     void handleExitApp('Remote Stop')
   })
 
-  // TrackPlayer.addEventListener(TPEvent.RemoteDuck, async({ permanent, paused, ducking }) => {
-  //   console.log('remote-duck')
-  //   if (paused) {
-  //     store.dispatch(playerAction.setStatus({ status: STATUS.pause, text: '已暂停' }))
-  //     lrcPause()
-  //   } else {
-  //     store.dispatch(playerAction.setStatus({ status: STATUS.playing, text: '播放中...' }))
-  //     TrackPlayer.getPosition().then(position => {
-  //       lrcPlay(position * 1000)
-  //     })
-  //   }
-  // })
+  // 音频焦点/系统打断（来电、其它 App 抢占、系统降音）。
+  // 这是"突然没有声音"的一条独立成因，而原实现整段被注释掉 —— 完全不可见。
+  // 这里只补日志，不改变任何既有的播放行为（原来的注释代码会 dispatch store action）。
+  TrackPlayer.addEventListener(TPEvent.RemoteDuck, async({ permanent, paused, ducking }: any) => {
+    info('PLAYBACK', 'remote duck (audio focus changed)', {
+      permanent,
+      paused,
+      ducking,
+      playerTrackId: global.lx.playerTrackId || '',
+      isPlay: playerState.isPlay,
+      isTempId: isTempId(),
+    })
+    markEvent('playback.remoteDuck', { permanent, paused, ducking })
+    void flush()
+  })
 
   TrackPlayer.addEventListener(TPEvent.PlaybackError, async(err: any) => {
     console.log('playback-error', err)
@@ -126,7 +130,14 @@ const registerPlaybackService = async() => {
       info('PLAYBACK', 'state ignored by guard', {
         state: stateName,
         gettingUrlId: global.lx.gettingUrlId || '',
+        // "取链接闩锁"存在期间所有状态事件都会被丢弃（表现为无声/进度不动/切歌无效）。
+        // 记录闩锁年龄，才能区分"正常取链接"与"取链接永远不返回"。
+        gettingUrlIdAgeMs: global.lx.gettingUrlIdSince ? Date.now() - global.lx.gettingUrlIdSince : 0,
         isTempId: isTempId(),
+        isPlay: playerState.isPlay,
+        playerTrackId: global.lx.playerTrackId || '',
+        nowPlayTime: Math.round(playerState.progress.nowPlayTime),
+        position: info_.position,
       })
       return
     }

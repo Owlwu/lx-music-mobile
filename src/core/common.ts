@@ -10,6 +10,7 @@ import commonActions from '@/store/common/action'
 import commonState, { type InitState as CommonStateType } from '@/store/common/state'
 
 import { storageDataPrefix } from '@/config/constant'
+import { markCleanExit } from '@/utils/runtimeLog'
 import { saveData } from '@/plugins/storage'
 import { throttle } from '@/utils/common'
 import { getSelectedManagedFolder, saveFontSize, saveViewPrevState, setSelectedManagedFolder } from '@/utils/data'
@@ -54,6 +55,9 @@ export const exitApp = (reason: string) => {
   console.log('Handle Exit App, Reason: ' + reason)
   if (isDestroying) return
   isDestroying = true
+  // 标记"本次会话正常退出"：下一次启动时 runtimeLog 依赖这个标记判断
+  // 上一次是否为非正常结束（被系统杀掉/被冻结/崩溃都不会有这一行）。
+  void markCleanExit(`exitApp: ${reason}`)
   void Promise.all([
     hideDesktopLyric(),
     destroyPlayer(),

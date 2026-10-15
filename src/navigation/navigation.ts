@@ -14,6 +14,7 @@ import { NAV_SHEAR_NATIVE_IDS } from '@/config/constant'
 import { getStatusBarStyle } from './utils'
 import { windowSizeTools } from '@/utils/windowSizeTools'
 import { type ListInfoItem } from '@/store/songlist/state'
+import { info, error as logError, flush } from '@/utils/runtimeLog'
 
 // const store = getStore()
 // const getTheme = () => getter('common', 'theme')(store.getState())
@@ -53,6 +54,11 @@ export async function pushHomeScreen() {
   */
 
   const theme = themeState.theme
+  // setRoot 是"界面到底有没有被挂上"的唯一动作；原实现在 app.ts 的
+  // "push home screen..." 与 "home screen pushed" 之间没有任何日志，
+  // 一旦它永不 resolve，界面空白且无法定位（这里补上进入/完成/失败三点）。
+  const startTime = Date.now()
+  info('BOOT', 'Navigation.setRoot start')
   return Navigation.setRoot({
     root: {
       stack: {
@@ -83,6 +89,16 @@ export async function pushHomeScreen() {
         }],
       },
     },
+  }).then((result) => {
+    info('BOOT', 'Navigation.setRoot done', { costMs: Date.now() - startTime })
+    return result
+  }).catch(async(err: any) => {
+    logError('BOOT', 'Navigation.setRoot failed', {
+      costMs: Date.now() - startTime,
+      error: (err?.stack ?? err?.message ?? String(err)) as string,
+    })
+    await flush()
+    throw err
   })
 }
 export function pushPlayDetailScreen(componentId: string, skipAnimation = false) {

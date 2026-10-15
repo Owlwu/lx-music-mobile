@@ -1,0 +1,53 @@
+feat(diagnosis): 修复后台播放无法排查问题，并修复分享日志崩溃
+
+背景：后台播放时偶发「突然无声、状态仍是播放、进度不动、切歌无效、
+切回前台界面空白」。用户提供的前 3 份导出日志只覆盖「重启后的 15~22 秒」，
+与故障现场零交集，无法定位。本次定位到 4 处采集缺陷并全部修复。
+
+一、日志采集缺陷与修复
+1. 导出只含当前进程内存缓冲 → 改为：启动时从落盘文件回捞「上一次会话尾部」
+   注入内存缓冲；新增 [SESSION] session start/end 与会话 id，
+   非正常结束（被杀/冻结/崩溃）会显式记录。
+2. 后台不落盘：flush 由 setTimeout 调度，而 RN 在后台会暂停全部 JS 定时器
+   （JavaTimerManager.onHostPause → isPaused=true）→ flush 改用
+   react-native-background-timer（原生定时器，后台仍触发）；
+   warn/error 直接落盘；doFlush 后只要仍有待写内容就继续调度。
+3. 看门狗既看不到后台又造假警报 → 新增 noteAppState()：gap 若可由
+   「后台暂停 JS 定时器」解释则降级为 INFO，只有前台真卡住才写 [STALL]。
+4. 关键路径几乎无日志 → 补齐：后台心跳、静默播放检测、渲染存活、
+   取链接闩锁年龄、音频焦点(RemoteDuck)、进度轮询存活、启动/恢复播放、
+   Navigation.setRoot 与屏幕级错误边界。
+
+二、新增埋点
+- src/utils/playbackHeartbeat.ts：原生定时器心跳（后台可用），每跳 flush；
+  记录 gap（JS 卡死/进程冻结）、[PLAYBACK_SILENT]（在播放但进度不动）、
+  [PLAYBACK_MISMATCH]（UI 与原生状态矛盾），并采样原生播放器状态。
+- src/utils/diagnostics.ts + src/utils/nativeModules/diagnostics.ts：
+  完整诊断导出 = 即时状态 + 看门狗/心跳 + 内存缓冲 + 落盘全文 + 原生日志；
+  支持写入 CacheDir 文件后以文件分享。
+- src/components/common/ErrorBoundary.tsx：每个屏幕加错误边界，
+  渲染异常不再变成全屏空白，而是可见提示 + [RENDER] 日志（含调用栈）。
+- android .../diagnostics/{DiagnosticsLog,DiagnosticsModule,DiagnosticsPackage}：
+  独立于 JS 线程的原生日志（自有文件 + 512KB 轮转）：Activity 生命周期、
+  onTrimMemory/onLowMemory、RNTP 事件广播（JS 死后仍有播放时间线）、
+  主线程心跳 gap、JS 存活应答（JS_UNRESPONSIVE）、音频是否真在出声
+  （SILENT_PLAYBACK）。所有入口 try/catch，写盘在独立线程。
+
+三、修复「点分享日志 → Critical Error Occured !」
+根因：UtilsModule.shareText 把整段文本放进 Intent.EXTRA_TEXT，既无大小检查
+也无 try/catch；旧「分享日志」传入的是整份日志（主文件 + 2 个备份，最大约
+1.5MB），超出 Binder 事务上限后 startActivity 抛异常且无人接管，
+被 react-native-exception-handler 的全局处理器接管界面（错误页 + finish
+Activity），故必须杀进程重开。日志还小时不会触发，故「下午还能用」。
+修复：shareText 增加大小上限与 try/catch（失败只记日志）；
+新增 shareFile（EXTRA_STREAM + FileProvider，文件不经 Binder，无大小限制）；
+「分享日志」改为生成 .txt 后按文件分享（失败退化为受限文本）；
+「复制诊断信息」改用精简预算 + 6 万字符上限；
+「查看运行时日志」弹窗按 20 万字符裁剪显示，避免渲染超大文本卡顿。
+
+四、验证
+- npm run tsc：通过；npm run lint（全仓）：通过
+- gradlew :app:compileDebugJavaWithJavac --offline：BUILD SUCCESSFUL（exit 0）
+- 未做真机验证，运行时行为与分享链路需在设备上确认
+- 文档：.diagnosis/log-analysis-2026-10-15.md、verification-2026-10-15.md、
+  .diagnosis/用户排查操作指南.md

@@ -11,6 +11,8 @@ import java.util.List;
 
 import cn.toside.music.mobile.cache.CachePackage;
 import cn.toside.music.mobile.crypto.CryptoPackage;
+import cn.toside.music.mobile.diagnostics.DiagnosticsLog;
+import cn.toside.music.mobile.diagnostics.DiagnosticsPackage;
 import cn.toside.music.mobile.lyric.LyricPackage;
 import cn.toside.music.mobile.userApi.UserApiPackage;
 import cn.toside.music.mobile.utils.UtilsPackage;
@@ -31,6 +33,7 @@ public class MainApplication extends NavigationApplication {
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // packages.add(new MyReactNativePackage());
           packages.add(new CachePackage());
+          packages.add(new DiagnosticsPackage());
           packages.add(new LyricPackage());
           packages.add(new UtilsPackage());
           packages.add(new CryptoPackage());
@@ -63,10 +66,26 @@ public class MainApplication extends NavigationApplication {
   public void onCreate() {
     super.onCreate();
 
+    // Native, JS-independent diagnostics trail: start as early as possible, before the RN host.
+    DiagnosticsLog.init(this, this);
+    DiagnosticsLog.startMonitoring(this);
+
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       DefaultNewArchitectureEntryPoint.load();
     }
     ReactNativeFlipper.initializeFlipper(this, getReactNativeHost().getReactInstanceManager());
+  }
+
+  @Override
+  public void onTrimMemory(int level) {
+    super.onTrimMemory(level);
+    DiagnosticsLog.log("TRIM", "Application onTrimMemory level=" + level);
+  }
+
+  @Override
+  public void onLowMemory() {
+    super.onLowMemory();
+    DiagnosticsLog.log("TRIM", "Application onLowMemory");
   }
 }

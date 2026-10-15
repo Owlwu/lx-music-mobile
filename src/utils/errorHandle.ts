@@ -1,22 +1,42 @@
-import { Alert } from 'react-native'
+import { Alert, AppState } from 'react-native'
 // import { exitApp } from '@/utils/common'
 import { setJSExceptionHandler, setNativeExceptionHandler } from 'react-native-exception-handler'
 import { log } from '@/utils/log'
 import { error as runtimeError, flushSyncBestEffort, getSnapshot } from '@/utils/runtimeLog'
 import { getWatchdogSnapshot } from '@/utils/stallWatchdog'
-import { toast } from './tools'
+import { getHeartbeatSnapshot } from '@/utils/playbackHeartbeat'
+import { toast, isActive } from './tools'
 
 /**
  * 收集崩溃时的播放上下文。
  * 这些字段是排查"长时间听歌后歌曲不播放/应用空白"时判断"崩溃前在播什么、
  * 播放器处于什么状态"的直接证据，因此必须随异常一起落盘。
+ *
+ * 注意：这里的字段会被写进"用户几乎必然会上报"的 error.log，
+ * 因此宁可多带几个标量，也不要在事后靠猜。
  */
 const getPlayContext = () => {
   try {
+    const now = Date.now()
+    let nowPlayTime = -1
+    let statusText = ''
+    try {
+      // 惰性取：本文件在 app 启动最早期就被 import，避免把 store 提前拉进启动路径
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const playerState: any = require('@/store/player/state').default
+      nowPlayTime = Math.round(Number(playerState?.progress?.nowPlayTime ?? -1))
+      statusText = String(playerState?.statusText ?? '')
+    } catch (err) {}
     return {
+      appState: AppState.currentState,
+      uiVisible: isActive(),
       trackId: global.lx?.playerTrackId ?? '',
       gettingUrlId: global.lx?.gettingUrlId ?? '',
+      // "取链接闩锁"持续多久：闩锁期间全部播放状态事件都会被丢弃
+      gettingUrlIdAgeMs: global.lx?.gettingUrlId ? now - (global.lx.gettingUrlIdSince || now) : 0,
       isPlayedStop: global.lx?.isPlayedStop ?? false,
+      nowPlayTime,
+      statusText,
       isIniting: global.lx?.playerStatus?.isIniting ?? false,
       isInitialized: global.lx?.playerStatus?.isInitialized ?? false,
       isRegisteredService: global.lx?.playerStatus?.isRegisteredService ?? false,
@@ -26,12 +46,13 @@ const getPlayContext = () => {
   }
 }
 
-/** 崩溃前紧急落盘：写入播放上下文 + 内存快照 + 看门狗状态 */
+/** 崩溃前紧急落盘：写入播放上下文 + 内存快照 + 看门狗/心跳状态 */
 const flushFatalContext = (source: string, detail: any) => {
   try {
     runtimeError('FATAL', source, { ...getPlayContext(), ...detail })
     runtimeError('FATAL', 'memory snapshot', { snapshot: getSnapshot(200) })
     runtimeError('FATAL', 'watchdog snapshot', { snapshot: getWatchdogSnapshot() })
+    runtimeError('FATAL', 'heartbeat snapshot', { snapshot: getHeartbeatSnapshot() })
   } catch (err) {
     // 日志模块自身异常绝不能掩盖原始错误
     console.log('flushFatalContext failed', err)
@@ -73,6 +94,9 @@ const errorHandler = (e: Error, isFatal: boolean) => {
     message: e.message,
     isFatal,
     stack: e.stack ?? '',
+    // 崩溃弹窗只在界面前台时可见；后台崩溃时用户看不到任何提示，
+    // 只会在切回前台时看到"空白"，因此必须记录当时是否可见。
+    alertVisible: isActive(),
   })
 }
 
@@ -82,7 +106,14 @@ if (process.env.NODE_ENV !== 'development') {
   setNativeExceptionHandler((errorString) => {
     log.error(errorString)
     // 原生异常同样必须带上播放上下文并紧急落盘，否则崩溃时会丢失全部排查线索
-    flushFatalContext('native exception', { errorString })
+    flushFatalContext('native exception', {
+      errorString,
+      // 说明清楚"用户会看到什么"：forceToQuit=false 时，
+      // react-native-exception-handler 会用 DefaultErrorScreen 接管界面并 finish 当前 Activity，
+      // 但**不会** System.exit —— 进程、前台播放服务、悬浮歌词都会继续存活，
+      // 于是现象正是"界面空白、歌词还在、声音却没了"。
+      uiTakeover: 'native exception handler shows DefaultErrorScreen and finishes the activity (forceToQuit=false); process and foreground service survive',
+    })
     console.log('+++++', errorString, '+++++')
   }, false)
 }
