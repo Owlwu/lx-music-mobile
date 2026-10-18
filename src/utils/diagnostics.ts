@@ -9,7 +9,7 @@ import {
   getOptions,
 } from '@/utils/runtimeLog'
 import { getWatchdogSnapshot, getStallCount, getLastStall } from '@/utils/stallWatchdog'
-import { getHeartbeatSnapshot } from '@/utils/playbackHeartbeat'
+import { getHeartbeatSnapshot, resolvePlayerStateName } from '@/utils/playbackHeartbeat'
 import { readNativeDiagnosticsLog, getNativeDiagnosticsStatus, isNativeDiagnosticsAvailable } from '@/utils/nativeModules/diagnostics'
 import { temporaryDirectoryPath, writeFile } from '@/utils/fs'
 import playerState from '@/store/player/state'
@@ -79,7 +79,8 @@ const samplePlayer = async(): Promise<Record<string, any>> => {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const TrackPlayer = require('react-native-track-player')?.default
+    const mod = require('react-native-track-player')
+    const TrackPlayer = mod?.default
     if (!TrackPlayer) return { error: 'track-player unavailable' }
     const timeout = new Promise<never>((resolve, reject) => {
       timeoutHandle = setTimeout(() => { reject(new Error('sample timeout')) }, 3000)
@@ -91,7 +92,9 @@ const samplePlayer = async(): Promise<Record<string, any>> => {
       TrackPlayer.getBufferedPosition(),
       TrackPlayer.getQueue(),
     ]).then(([state, position, duration, buffered, queue]: any[]) => ({
-      state: typeof state == 'number' ? (TrackPlayer.State?.[state] ?? state) : state,
+      // 注意：State 是具名导出，不在 default 上（用错会退化成 '3' 这种数字字符串）
+      state: resolvePlayerStateName(mod, state),
+      stateNum: typeof state == 'number' ? state : -1,
       position,
       duration,
       buffered,

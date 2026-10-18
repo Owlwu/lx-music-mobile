@@ -7,7 +7,16 @@ import { useSettingValue } from '@/store/setting/hook'
 import { useI18n } from '@/lang'
 import { updateSetting } from '@/core/common'
 
-const MAX_SIZE = 1024 * 1024 * 1024
+/**
+ * 允许的最大缓存（单位：MiB，与界面标注一致）。
+ *
+ * 注意：原实现写成 `1024 * 1024 * 1024`，是**按字节**想的，但这里比较的
+ * `parseInt(cacheSize)` 实际是 **MiB 数值**，于是这个上限永远不会命中，
+ * 用户能填任意大值。按现在的换算链（settings MiB → `cacheSize * 1024`
+ * → `MusicManager.java` 再 `* 1024`），填 2048 就是真 2 GiB 磁盘缓存。
+ * 这里改成有意义的 MiB 上限，避免误填把手机存储塞满。
+ */
+const MAX_SIZE = 8192
 export default memo(() => {
   const t = useI18n()
   const cacheSize = useSettingValue('player.cacheSize')

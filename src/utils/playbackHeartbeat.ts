@@ -50,8 +50,17 @@ let silentSince = 0
 let lastSilentLogAt = 0
 let mismatchSince = 0
 let lastMismatchLogAt = 0
+let lastSuspectDurationLogAt = 0
 let lastSampleOkAt = 0
 let pendingSampleCount = 0
+
+/** RNTP State 的数值（与 State 枚举一致，作为名称解析失败时的兜底判据） */
+const TP_STATE_PLAYING_NUM = 3
+const TP_STATE_BUFFERING_NUM = 6
+/** 判定 duration 异常偏短的阈值（秒） */
+const suspectDurationSec = 10
+/** 重复上报"duration 异常"的最小间隔（毫秒） */
+const suspectDurationLogInterval = 300000
 
 interface HeartbeatBase {
   seq: number
@@ -81,13 +90,40 @@ const getProgressModule = (): any => {
   }
 }
 
-const getTrackPlayer = (): any => {
+const getTrackPlayerModule = (): any => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('react-native-track-player')?.default ?? null
+    return require('react-native-track-player') ?? null
   } catch (err) {
     return null
   }
+}
+
+/**
+ * RNTP 的 `State` 是**具名导出**（见 lib/interfaces.js：`exports.State = ...`），
+ * **不在 default（TrackPlayer 实例）上**。
+ *
+ * 早期写法 `TrackPlayer.State?.[state]` 因此恒为 `undefined`，最终得到 `String(state)`（例如 `'3'`），
+ * 于是下面所有 `stateName == 'Playing'` 之类的判断**全部失效**，造成两个后果：
+ *   1. `PLAYBACK_SILENT`（"显示在播放但没有声音、进度也不动"）**永远不触发** —— 用户最需要的那条证据是死代码；
+ *   2. `PLAYBACK_MISMATCH`（"UI 认为在播但原生没在播"）**每次心跳都误报** —— 因为 `'3' != 'Playing'` 恒成立。
+ *
+ * 这里改为从模块取，取不到再用本地表兜底，保证判断始终有效。
+ */
+const nativeStateNames: Record<number, string> = {
+  0: 'None',
+  1: 'Stopped',
+  2: 'Paused',
+  3: 'Playing',
+  6: 'Buffering',
+  8: 'Connecting',
+}
+
+export const resolvePlayerStateName = (mod: any, state: any): string => {
+  if (typeof state != 'number') return String(state)
+  const fromModule = mod?.State?.[state]
+  if (typeof fromModule == 'string') return fromModule
+  return nativeStateNames[state] ?? String(state)
 }
 
 /**
@@ -137,12 +173,14 @@ const samplePlayer = async(base: HeartbeatBase, now: number) => {
   pendingSampleCount++
   const startedSampleAt = Date.now()
   let stateName = 'unavailable'
+  let stateNum = -1
   let position = -1
   let duration = -1
   let buffered = -1
   let queueLen = -1
   try {
-    const TrackPlayer = getTrackPlayer()
+    const mod = getTrackPlayerModule()
+    const TrackPlayer = mod?.default
     if (!TrackPlayer) throw new Error('track-player module unavailable')
     const [state, pos, dur, buf, queue] = await Promise.all([
       TrackPlayer.getState(),
@@ -151,7 +189,8 @@ const samplePlayer = async(base: HeartbeatBase, now: number) => {
       TrackPlayer.getBufferedPosition(),
       TrackPlayer.getQueue(),
     ])
-    stateName = typeof state == 'number' ? (TrackPlayer.State?.[state] ?? String(state)) : String(state)
+    stateNum = typeof state == 'number' ? state : -1
+    stateName = resolvePlayerStateName(mod, state)
     position = typeof pos == 'number' ? pos : -1
     duration = typeof dur == 'number' ? dur : -1
     buffered = typeof buf == 'number' ? buf : -1
@@ -172,6 +211,7 @@ const samplePlayer = async(base: HeartbeatBase, now: number) => {
     ...base,
     sampleCostMs: Date.now() - startedSampleAt,
     state: stateName,
+    stateNum,
     position: Math.round(position * 100) / 100,
     duration: Math.round(duration * 100) / 100,
     buffered: Math.round(buffered * 100) / 100,
@@ -180,12 +220,28 @@ const samplePlayer = async(base: HeartbeatBase, now: number) => {
     ...collectProgressState(),
   })
 
-  detectAbnormal(base, stateName, position, now)
+  detectAbnormal(base, stateName, stateNum, position, duration, buffered, queueLen, now)
 }
 
-/** 检测两类"用户可感知的假死"：进度不动、UI 状态与原生状态矛盾 */
-const detectAbnormal = (base: HeartbeatBase, stateName: string, position: number, now: number) => {
-  const isPlayingState = stateName == 'Playing' || stateName == 'Buffering'
+/**
+ * 检测三类"用户可感知的假死"：进度不动、UI 状态与原生状态矛盾、duration 异常
+ *
+ * 注意：判断同时接受**状态名**与**数值**。历史上因为取不到 `State` 具名导出，
+ * 状态名会退化成 `'3'` 这种字符串，导致这里所有字符串比较失效（详见 resolvePlayerStateName 的注释）。
+ * 加上数值兜底后，即使名称再退化也不会静默失去检测能力。
+ */
+const detectAbnormal = (
+  base: HeartbeatBase,
+  stateName: string,
+  stateNum: number,
+  position: number,
+  duration: number,
+  buffered: number,
+  queueLen: number,
+  now: number,
+) => {
+  const isPlayingState = stateName == 'Playing' || stateName == 'Buffering' ||
+    stateNum == TP_STATE_PLAYING_NUM || stateNum == TP_STATE_BUFFERING_NUM
 
   if (base.isPlay && isPlayingState && position >= 0) {
     if (lastPosition != null && Math.abs(position - lastPosition) < 0.25) {
@@ -226,6 +282,7 @@ const detectAbnormal = (base: HeartbeatBase, stateName: string, position: number
       warn('PLAYBACK_MISMATCH', 'app thinks it is playing but native player state differs', {
         ...base,
         state: stateName,
+        stateNum,
         mismatchForMs: mismatchFor,
         ...collectProgressState(),
       })
@@ -234,6 +291,24 @@ const detectAbnormal = (base: HeartbeatBase, stateName: string, position: number
     }
   } else {
     mismatchSince = 0
+  }
+
+  // duration 异常偏短：进程被杀后重开时见过一次（duration=2.194，与上一首 queue-ended 的
+  // position=2.199 几乎相同），表现是"打开后点播放瞬间就结束"。这里单独记一条，便于确认机制。
+  if (duration > 0 && duration < suspectDurationSec && queueLen > 0 &&
+    now - lastSuspectDurationLogAt >= suspectDurationLogInterval) {
+    lastSuspectDurationLogAt = now
+    warn('PLAYBACK_DURATION', 'player reports a suspiciously short duration', {
+      ...base,
+      state: stateName,
+      stateNum,
+      position: Math.round(position * 100) / 100,
+      duration: Math.round(duration * 100) / 100,
+      buffered: Math.round(buffered * 100) / 100,
+      queueLen,
+    })
+    markEvent('playback.suspectDuration', { duration, queueLen })
+    void flush()
   }
 }
 

@@ -33,6 +33,7 @@ import java.util.ArrayDeque;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -75,6 +76,15 @@ public final class DiagnosticsLog {
   private static final long PROBE_ERROR_REPEAT_MS = 60000L;
 
   private static final long MB = 1024L * 1024L;
+
+  /* thread dump（JS 无响应时抓现场） */
+  private static final int MAX_DUMP_LINES = 160;
+  private static final int MAX_JS_FRAMES = 48;
+  private static final int MAX_MAIN_FRAMES = 32;
+  private static final int MAX_OTHER_FRAMES = 3;
+  private static final int MAX_FRAME_CHARS = 150;
+  /* 缓存目录用量采样（后台线程，主线程只读缓存值） */
+  private static final long CACHE_SAMPLE_INTERVAL_MS = 60000L;
 
   /**
    * TrackPlayer event bus action.
@@ -168,6 +178,10 @@ public final class DiagnosticsLog {
 
   /* rotation */
   private static volatile long lastRotateAttemptMs = 0L;
+
+  /* 缓存目录用量（由后台线程更新，主线程只读缓存值，避免在心跳里遍历上千个分片文件） */
+  private static volatile long cacheDirMB = -1L;
+  private static volatile Thread cacheSamplerThread = null;
 
   /* registered callbacks / receiver (strong refs so nothing is collected) */
   private static volatile Object componentCallbacksRef = null;
@@ -313,7 +327,9 @@ public final class DiagnosticsLog {
 
       if (wasUnresponsive) {
         long age = previous > 0 ? now - previous : 0L;
-        log("JS_ACK", "resumed after " + age + "ms");
+        // 能走到这里 => JS 线程还活着（只是刚才被阻塞了），
+        // 与"jsFound=0 / 进程被杀"是完全不同的结论，这里显式写明便于检索。
+        log("JS_ACK", "resumed after " + age + "ms (JS thread was blocked, not killed)");
       }
     } catch (Throwable ignored) {
       /* never propagate */
@@ -351,6 +367,10 @@ public final class DiagnosticsLog {
         + " trimLevel=" + lastTrimLevel
         + " nativeHeapMB=" + nativeHeapMB()
         + " javaHeapMB=" + javaHeapMB()
+        + " maxHeapMB=" + maxHeapMB()
+        + " cacheDirMB=" + cacheDirMB
+        + " procUptimeMs=" + procUptimeMs()
+        + " uptimeMs=" + now
         + " logBytes=" + logBytes()
         + " droppedLines=" + droppedLines;
     } catch (Throwable ignored) {
@@ -371,6 +391,7 @@ public final class DiagnosticsLog {
       registerActivityCallbacks(app);
       registerAudioCallback(app);
       registerTrackPlayerReceiver(app);
+      startCacheSampler();
 
       Handler handler = mainHandler;
       if (handler != null) {
@@ -579,11 +600,17 @@ public final class DiagnosticsLog {
           jsUnresponsive = true;
           jsUnresponsiveSinceMs = lastJsAckUptimeMs > 0L ? lastJsAckUptimeMs : startUptimeMs;
           lastUnresponsiveLogMs = now;
-          log("JS_UNRESPONSIVE", "no JS ack for " + ackAge + "ms (JS thread dead or frozen)");
+          log("JS_UNRESPONSIVE", "no JS ack for " + ackAge + "ms (JS thread dead or frozen)"
+            + " lastAckAtUptimeMs=" + lastJsAckUptimeMs
+            + " procUptimeMs=" + procUptimeMs());
+          // 立刻抓一次线程现场：这是区分"JS 被阻塞"还是"JS 已消失"的唯一证据
+          dumpThreads("first-detected ackAge=" + ackAge + "ms");
         } else if (!jsUnresponsiveLongLogged && ackAge > ACK_UNRESPONSIVE_LONG_MS) {
           jsUnresponsiveLongLogged = true;
           lastUnresponsiveLogMs = now;
           log("JS_UNRESPONSIVE", "no JS ack for " + ackAge + "ms (JS thread dead or frozen)");
+          // 30s 后再抓一次：两次栈相同 => 稳定阻塞/死锁；第二次 jsFound=0 => 先卡后死
+          dumpThreads("long-threshold ackAge=" + ackAge + "ms");
         } else if (jsUnresponsiveLongLogged && now - lastUnresponsiveLogMs >= ACK_UNRESPONSIVE_LONG_MS) {
           lastUnresponsiveLogMs = now;
           log("JS_UNRESPONSIVE", "no JS ack for " + ackAge + "ms (JS thread dead or frozen)");
@@ -604,9 +631,168 @@ public final class DiagnosticsLog {
         + " activities=" + startedActivities
         + " processImportance=" + processImportance()
         + " nativeHeapMB=" + nativeHeapMB()
+        + " javaHeapMB=" + javaHeapMB()
+        + " maxHeapMB=" + maxHeapMB()
+        + " cacheDirMB=" + cacheDirMB
+        + " procUptimeMs=" + procUptimeMs()
         + " trimLevel=" + lastTrimLevel
         + " logBytes=" + logBytes()
         + " droppedLines=" + droppedLines);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* thread dump (the decisive evidence for "why did JS stop responding")*/
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * 把**当前所有线程的栈**写进原生日志。
+   *
+   * 为什么需要它：已有的 {@code JS_UNRESPONSIVE} 只能证明"JS 不再应答"，却无法区分
+   * 两种修法完全不同的原因：
+   * <ul>
+   *   <li><b>A. 还活着但被卡死</b> —— 同步 native 调用不返回、超长 GC、锁等待。
+   *       栈里能直接看到 JS 线程停在哪个 native 帧上；</li>
+   *   <li><b>B. 线程已经不存在</b> —— 被系统或 JS 引擎干掉。
+   *       此时 {@link Thread#getAllStackTraces()} 里根本没有它（{@code jsFound=0}）。</li>
+   * </ul>
+   * 二者必须在无响应发生的那一刻取现场，事后无法重建。
+   *
+   * 实现约束：只在"首次检测到无响应"和"越过 60s 长阈值"时各抓一次；每帧裁剪长度、
+   * 总行数设上限；全程吞异常，绝不把异常抛给调用方（心跳不能因此挂掉）。
+   */
+  private static void dumpThreads(String reason) {
+    try {
+      Map<Thread, StackTraceElement[]> snapshot = Thread.getAllStackTraces();
+      if (snapshot == null) {
+        log("THREADS", "dump reason=" + reason + " skipped: no snapshot");
+        return;
+      }
+
+      Looper mainLooper = Looper.getMainLooper();
+      Thread mainThread = mainLooper == null ? null : mainLooper.getThread();
+      Thread jsThread = null;
+      for (Thread thread : snapshot.keySet()) {
+        if (thread == null || thread == mainThread) continue;
+        if (isJsThreadName(thread.getName())) {
+          jsThread = thread;
+          break;
+        }
+      }
+
+      int remaining = MAX_DUMP_LINES;
+      log("THREADS", "dump reason=" + reason
+        + " threads=" + snapshot.size()
+        + " jsFound=" + (jsThread != null ? 1 : 0)
+        + " procUptimeMs=" + procUptimeMs()
+        + " javaHeapMB=" + javaHeapMB()
+        + " maxHeapMB=" + maxHeapMB());
+      remaining--;
+
+      if (jsThread != null) {
+        remaining -= dumpOneThread(jsThread, snapshot.get(jsThread), "js", MAX_JS_FRAMES, remaining);
+      } else if (remaining > 0) {
+        // 这一条本身就是结论：线程不在了，属于"被杀死"而不是"被阻塞"
+        log("THREADS", "  @@ js thread NOT FOUND (terminated, not merely blocked)");
+        remaining--;
+      }
+
+      if (mainThread != null && remaining > 0) {
+        StackTraceElement[] frames = snapshot.get(mainThread);
+        if (frames == null) frames = mainThread.getStackTrace();
+        remaining -= dumpOneThread(mainThread, frames, "main", MAX_MAIN_FRAMES, remaining);
+      }
+
+      int others = 0;
+      for (Thread thread : snapshot.keySet()) {
+        if (thread == null || thread == jsThread || thread == mainThread) continue;
+        if (remaining <= 0) break;
+        others++;
+        remaining--;
+        log("THREADS", "  [" + thread.getState() + "] " + clipTo(thread.getName(), 40)
+          + " | " + topFrames(snapshot.get(thread), MAX_OTHER_FRAMES));
+      }
+      log("THREADS", "dump end others=" + others + (remaining <= 0 ? " (truncated)" : ""));
+    } catch (Throwable t) {
+      try {
+        log("THREADS", "dump failed " + t.getClass().getSimpleName());
+      } catch (Throwable ignored) {
+        /* never propagate */
+      }
+    }
+  }
+
+  /** 写一个线程的完整栈（受预算限制）。返回实际占用的行数。 */
+  private static int dumpOneThread(Thread thread, StackTraceElement[] frames, String label,
+                                   int maxFrames, int budget) {
+    int used = 0;
+    try {
+      if (budget <= 0) return 0;
+      log("THREADS", "  @@ " + label + " name=" + clipTo(thread.getName(), 40)
+        + " state=" + thread.getState()
+        + " frames=" + (frames == null ? 0 : frames.length));
+      used++;
+      if (frames == null) return used;
+      int limit = Math.min(frames.length, maxFrames);
+      for (int i = 0; i < limit && used < budget; i++) {
+        log("THREADS", "    #" + i + " " + clipTo(String.valueOf(frames[i]), MAX_FRAME_CHARS));
+        used++;
+      }
+      if (frames.length > limit && used < budget) {
+        log("THREADS", "    ... " + (frames.length - limit) + " more frames");
+        used++;
+      }
+    } catch (Throwable ignored) {
+      /* ignore */
+    }
+    return used;
+  }
+
+  private static String topFrames(StackTraceElement[] frames, int max) {
+    if (frames == null || frames.length == 0) return "-";
+    StringBuilder sb = new StringBuilder();
+    int limit = Math.min(frames.length, max);
+    for (int i = 0; i < limit; i++) {
+      if (i > 0) sb.append(" | ");
+      sb.append(clipTo(String.valueOf(frames[i]), 80));
+    }
+    return sb.toString();
+  }
+
+  /**
+   * 识别 JS 线程。RN 的 JS 线程名形如 {@code mqt_js}（MessageQueueThread "js"），
+   * 部分版本/桥接实现用 {@code ReactNativeJS}、{@code mqt_v_js}（bridgeless）或 {@code hermes}。
+   */
+  private static boolean isJsThreadName(String name) {
+    if (name == null) return false;
+    String n = name.toLowerCase(Locale.US);
+    if (n.contains("reactnativejs")) return true;
+    if (n.startsWith("mqt_") && n.contains("js")) return true;
+    return n.equals("js") || n.contains("hermes");
+  }
+
+  private static String clipTo(String value, int max) {
+    if (value == null) return "";
+    if (max <= 0 || value.length() <= max) return value;
+    return value.substring(0, max) + "...";
+  }
+
+  /** 本进程已存活时长（毫秒）。注意与 {@code uptimeMs}（设备开机时长）区分。 */
+  private static long procUptimeMs() {
+    try {
+      if (startUptimeMs <= 0L) return 0L;
+      return Math.max(0L, SystemClock.elapsedRealtime() - startUptimeMs);
+    } catch (Throwable ignored) {
+      return -1L;
+    }
+  }
+
+  /** Java 堆上限（MB）。用于判断是否处于 largeHeap=off + 小堆的设备上。 */
+  private static long maxHeapMB() {
+    try {
+      return Runtime.getRuntime().maxMemory() / MB;
+    } catch (Throwable ignored) {
+      return -1L;
     }
   }
 
@@ -1109,6 +1295,78 @@ public final class DiagnosticsLog {
     } catch (Throwable ignored) {
       return -1L;
     }
+  }
+
+  /**
+   * 播放缓存的磁盘占用（MB）。
+   *
+   * 为什么单独采样：用户会怀疑"缓存写满是不是把 JS 搞挂了"。要能回答这个问题，
+   * 日志里必须有缓存用量本身；此前完全没有这个指标，只能靠推测。
+   *
+   * 目录取自 RNTP 的实现（node_modules/react-native-track-player ...
+   * service/player/LocalPlayback.java：{@code new File(context.getFilesDir(), "TrackPlayer")}）。
+   * 目录里可能有上千个分片文件，因此**在独立后台线程里统计**，心跳只读缓存值，
+   * 避免为了诊断反而在主线程上制造卡顿。
+   */
+  private static void startCacheSampler() {
+    try {
+      if (cacheSamplerThread != null) return;
+      Thread thread = new Thread(new Runnable() {
+        @Override
+        public void run() {
+          while (true) {
+            try {
+              updateCacheDirSize();
+            } catch (Throwable ignored) {
+              /* ignore */
+            }
+            try {
+              Thread.sleep(CACHE_SAMPLE_INTERVAL_MS);
+            } catch (InterruptedException e) {
+              return;
+            }
+          }
+        }
+      }, "diag-cache");
+      thread.setDaemon(true);
+      thread.start();
+      cacheSamplerThread = thread;
+    } catch (Throwable ignored) {
+      /* ignore */
+    }
+  }
+
+  private static void updateCacheDirSize() {
+    try {
+      Context ctx = appContext;
+      if (ctx == null) return;
+      File dir = new File(ctx.getFilesDir(), "TrackPlayer");
+      cacheDirMB = dirSize(dir, 0) / MB;
+    } catch (Throwable ignored) {
+      /* ignore */
+    }
+  }
+
+  private static long dirSize(File dir, int depth) {
+    if (dir == null || depth > 6) return 0L;
+    File[] files;
+    try {
+      files = dir.listFiles();
+    } catch (Throwable ignored) {
+      return 0L;
+    }
+    if (files == null) return 0L;
+    long total = 0L;
+    for (File file : files) {
+      if (file == null) continue;
+      try {
+        if (file.isDirectory()) total += dirSize(file, depth + 1);
+        else total += file.length();
+      } catch (Throwable ignored) {
+        /* skip this entry */
+      }
+    }
+    return total;
   }
 
   private static String name(Activity activity) {
