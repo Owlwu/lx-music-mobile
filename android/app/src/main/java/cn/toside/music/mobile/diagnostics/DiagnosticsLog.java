@@ -22,6 +22,11 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
 
+import com.facebook.react.ReactApplication;
+import com.facebook.react.ReactInstanceManager;
+import com.facebook.react.ReactNativeHost;
+import com.facebook.react.bridge.ReactContext;
+
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import java.io.BufferedReader;
@@ -178,6 +183,18 @@ public final class DiagnosticsLog {
 
   /* rotation */
   private static volatile long lastRotateAttemptMs = 0L;
+
+  /*
+   * React 实例是否还活着（1=活跃 0=已销毁 -1=未知 -2=不支持探测）。
+   *
+   * 为什么必须探这个：所有 JS 定时器最终都由 react-native-background-timer 的
+   * BackgroundTimerModule.setTimeout 投递，而它内部有一道**静默守卫**：
+   *   if (reactContext.hasActiveReactInstance()) { emit(...) }   // 否则直接丢弃，无任何日志
+   * 该守卫为假时，整条 interval 链会无声无息地永久断掉 —— 没有异常、没有日志，
+   * 表现正是"JS 线程还活着却完全空闲，不再有任何心跳/进度/ack"。
+   * 把 hasActiveReactInstance() 记进日志，就能一眼判定是否为此因。
+   */
+  private static volatile int reactInstanceActive = -1;
 
   /* 缓存目录用量（由后台线程更新，主线程只读缓存值，避免在心跳里遍历上千个分片文件） */
   private static volatile long cacheDirMB = -1L;
@@ -354,6 +371,7 @@ public final class DiagnosticsLog {
         + " jsState=" + (unresponsive ? "unresponsive" : "ok")
         + " jsUnresponsiveMs=" + unresponsiveFor
         + " jsAckEver=" + (jsAckEver ? 1 : 0)
+        + " reactInstActive=" + reactInstanceActive
         + " activity=" + activityState
         + " activities=" + startedActivities
         + " processImportance=" + processImportance()
@@ -587,7 +605,10 @@ public final class DiagnosticsLog {
       }
     }
 
-    // 4. JS liveness
+    // 4. React 实例是否还活着（JS 定时器全部依赖它，见 reactInstanceActive 注释）
+    probeReactInstance();
+
+    // 5. JS liveness
     if (!jsAckEver) {
       if (now - lastNoAckLogMs >= ACK_UNRESPONSIVE_LONG_MS) {
         lastNoAckLogMs = now;
@@ -602,6 +623,7 @@ public final class DiagnosticsLog {
           lastUnresponsiveLogMs = now;
           log("JS_UNRESPONSIVE", "no JS ack for " + ackAge + "ms (JS thread dead or frozen)"
             + " lastAckAtUptimeMs=" + lastJsAckUptimeMs
+            + " reactInstActive=" + reactInstanceActive
             + " procUptimeMs=" + procUptimeMs());
           // 立刻抓一次线程现场：这是区分"JS 被阻塞"还是"JS 已消失"的唯一证据
           dumpThreads("first-detected ackAge=" + ackAge + "ms");
@@ -630,6 +652,7 @@ public final class DiagnosticsLog {
         + " activity=" + activityState
         + " activities=" + startedActivities
         + " processImportance=" + processImportance()
+        + " reactInstActive=" + reactInstanceActive
         + " nativeHeapMB=" + nativeHeapMB()
         + " javaHeapMB=" + javaHeapMB()
         + " maxHeapMB=" + maxHeapMB()
@@ -684,6 +707,8 @@ public final class DiagnosticsLog {
       log("THREADS", "dump reason=" + reason
         + " threads=" + snapshot.size()
         + " jsFound=" + (jsThread != null ? 1 : 0)
+        + " jsState=" + (jsThread != null ? String.valueOf(jsThread.getState()) : "-")
+        + " reactInstActive=" + reactInstanceActive
         + " procUptimeMs=" + procUptimeMs()
         + " javaHeapMB=" + javaHeapMB()
         + " maxHeapMB=" + maxHeapMB());
@@ -1250,6 +1275,43 @@ public final class DiagnosticsLog {
       return 0L;
     } catch (Throwable ignored) {
       return 0L;
+    }
+  }
+
+  /**
+   * 探测 React 实例是否仍然存活，并在状态**发生变化**时记一条日志。
+   *
+   * 这是"JS 定时器为什么全停了"的判定依据：见 {@link #reactInstanceActive} 的注释。
+   * 只在状态翻转时写日志，避免每分钟刷屏。
+   */
+  private static void probeReactInstance() {
+    try {
+      Context ctx = appContext;
+      if (!(ctx instanceof ReactApplication)) {
+        reactInstanceActive = -2;
+        return;
+      }
+      ReactNativeHost host = ((ReactApplication) ctx).getReactNativeHost();
+      if (host == null) {
+        reactInstanceActive = -2;
+        return;
+      }
+      ReactInstanceManager manager = host.getReactInstanceManager();
+      ReactContext reactContext = manager == null ? null : manager.getCurrentReactContext();
+      boolean active = reactContext != null && reactContext.hasActiveReactInstance();
+
+      int next = active ? 1 : 0;
+      int previous = reactInstanceActive;
+      reactInstanceActive = next;
+      if (previous != -1 && previous != next) {
+        // 从 1 → 0 是本类问题的关键转折点：此后所有 JS 定时器都会被静默丢弃
+        log("REACT_INSTANCE", "active=" + next
+          + " (previous=" + previous + ")"
+          + " reactContext=" + (reactContext != null ? 1 : 0)
+          + " note=0 表示此后 JS 定时器会被 BackgroundTimerModule 静默丢弃");
+      }
+    } catch (Throwable ignored) {
+      reactInstanceActive = -2;
     }
   }
 
