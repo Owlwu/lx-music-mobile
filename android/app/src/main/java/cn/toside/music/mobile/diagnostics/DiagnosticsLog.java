@@ -196,6 +196,20 @@ public final class DiagnosticsLog {
    */
   private static volatile int reactInstanceActive = -1;
 
+  /*
+   * RN 队列线程清单（mqt_js / mqt_native_modules …）以及 native_modules 线程是否存在。
+   *
+   * 为什么必须探这个：**所有 JS→原生的调用**（background-timer 的重排、JS 存活 ack、
+   * 日志落盘的 FileSystem.appendFile）都排在 mqt_native_modules 这个 Looper 上执行。
+   * 一旦该线程消失，这些调用会**永远滞留在队列里不执行**，而 JS 线程本身仍然健在且空闲
+   * —— 与线程栈里看到的 "mqt_js 停在 nativePollOnce" 完全吻合。
+   *
+   * 线程名依据：ReactQueueConfigurationSpec.java:44-46 用 "native_modules"/"js" 两个名字，
+   * 再由 MessageQueueThreadImpl.java:237 统一加上 "mqt_" 前缀。
+   */
+  private static volatile int nativeModulesThreadSeen = -1;
+  private static volatile String lastMqtThreads = "";
+
   /* 缓存目录用量（由后台线程更新，主线程只读缓存值，避免在心跳里遍历上千个分片文件） */
   private static volatile long cacheDirMB = -1L;
   private static volatile Thread cacheSamplerThread = null;
@@ -372,6 +386,7 @@ public final class DiagnosticsLog {
         + " jsUnresponsiveMs=" + unresponsiveFor
         + " jsAckEver=" + (jsAckEver ? 1 : 0)
         + " reactInstActive=" + reactInstanceActive
+        + " nativeModulesThread=" + nativeModulesThreadSeen
         + " activity=" + activityState
         + " activities=" + startedActivities
         + " processImportance=" + processImportance()
@@ -607,6 +622,8 @@ public final class DiagnosticsLog {
 
     // 4. React 实例是否还活着（JS 定时器全部依赖它，见 reactInstanceActive 注释）
     probeReactInstance();
+    // 4b. RN 队列线程是否还在（mqt_native_modules 消失 = JS→原生调用全部失效）
+    probeQueueThreads();
 
     // 5. JS liveness
     if (!jsAckEver) {
@@ -624,6 +641,8 @@ public final class DiagnosticsLog {
           log("JS_UNRESPONSIVE", "no JS ack for " + ackAge + "ms (JS thread dead or frozen)"
             + " lastAckAtUptimeMs=" + lastJsAckUptimeMs
             + " reactInstActive=" + reactInstanceActive
+            + " nativeModulesThread=" + nativeModulesThreadSeen
+            + " mqtThreads=" + lastMqtThreads
             + " procUptimeMs=" + procUptimeMs());
           // 立刻抓一次线程现场：这是区分"JS 被阻塞"还是"JS 已消失"的唯一证据
           dumpThreads("first-detected ackAge=" + ackAge + "ms");
@@ -653,6 +672,8 @@ public final class DiagnosticsLog {
         + " activities=" + startedActivities
         + " processImportance=" + processImportance()
         + " reactInstActive=" + reactInstanceActive
+        + " nativeModulesThread=" + nativeModulesThreadSeen
+        + " mqtThreads=" + lastMqtThreads
         + " nativeHeapMB=" + nativeHeapMB()
         + " javaHeapMB=" + javaHeapMB()
         + " maxHeapMB=" + maxHeapMB()
@@ -709,6 +730,8 @@ public final class DiagnosticsLog {
         + " jsFound=" + (jsThread != null ? 1 : 0)
         + " jsState=" + (jsThread != null ? String.valueOf(jsThread.getState()) : "-")
         + " reactInstActive=" + reactInstanceActive
+        + " nativeModulesThread=" + nativeModulesThreadSeen
+        + " mqtThreads=" + lastMqtThreads
         + " procUptimeMs=" + procUptimeMs()
         + " javaHeapMB=" + javaHeapMB()
         + " maxHeapMB=" + maxHeapMB());
@@ -1312,6 +1335,44 @@ public final class DiagnosticsLog {
       }
     } catch (Throwable ignored) {
       reactInstanceActive = -2;
+    }
+  }
+
+  /**
+   * 检测 RN 队列线程（`mqt_*`）是否还在，并在 `mqt_native_modules` 消失/出现时记一条日志。
+   *
+   * 这是"JS 线程空闲但所有 JS→原生调用都不生效"的判定依据：
+   * 该线程若消失，background-timer 重排、JS 存活 ack、日志落盘都会永远排队不执行。
+   * 用 {@link Thread#enumerate} 而不是 getAllStackTraces()，避免每 15s 抓一次全栈的开销。
+   */
+  private static void probeQueueThreads() {
+    try {
+      Thread[] buffer = new Thread[512];
+      int count = Thread.enumerate(buffer);
+      boolean found = false;
+      StringBuilder mqt = new StringBuilder();
+      for (int i = 0; i < count; i++) {
+        Thread thread = buffer[i];
+        if (thread == null) continue;
+        String name = thread.getName();
+        if (name == null || !name.startsWith("mqt_")) continue;
+        if (mqt.length() > 0) mqt.append(',');
+        mqt.append(name);
+        if (name.equals("mqt_native_modules")) found = true;
+      }
+      lastMqtThreads = mqt.toString();
+
+      int next = found ? 1 : 0;
+      int previous = nativeModulesThreadSeen;
+      nativeModulesThreadSeen = next;
+      if (previous != -1 && previous != next) {
+        log("QUEUE_THREAD", "mqt_native_modules present=" + next
+          + " (previous=" + previous + ")"
+          + " mqtThreads=" + lastMqtThreads
+          + " note=0 表示 JS→原生调用将永远排队不执行");
+      }
+    } catch (Throwable ignored) {
+      /* ignore */
     }
   }
 
