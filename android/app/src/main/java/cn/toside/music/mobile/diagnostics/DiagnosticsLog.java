@@ -425,6 +425,8 @@ public final class DiagnosticsLog {
       registerAudioCallback(app);
       registerTrackPlayerReceiver(app);
       startCacheSampler();
+      // 尽早给已存在的 mqt_* 线程挂异常钩子；后续新起的线程由心跳里的探测补挂
+      attachUncaughtHandlerOnQueueThreads();
 
       Handler handler = mainHandler;
       if (handler != null) {
@@ -529,6 +531,41 @@ public final class DiagnosticsLog {
       }
     } catch (Throwable ignored) {
       /* rotation is best effort */
+    }
+  }
+
+  /**
+   * 直接、同步地把一行追加到日志文件（不经过 writer 线程与内存队列）。
+   *
+   * 专供"进程可能马上就死"的路径（{@link #UNCAUGHT_LOGGER}）使用：常规 {@link #log}
+   * 只是把行塞进队列、再由 diag-log 线程异步落盘，崩溃收尾阶段可能来不及。
+   * 任何异常都吞掉 —— 它运行在正在崩溃的线程上，绝不能再抛。
+   */
+  private static void appendLineDirect(String tag, String message) {
+    try {
+      File file = logFile;
+      if (file == null) return;
+      String stamp;
+      try {
+        SimpleDateFormat fmt = writerFormat;
+        stamp = fmt != null ? fmt.format(new Date()) : String.valueOf(System.currentTimeMillis());
+      } catch (Throwable ignored) {
+        stamp = String.valueOf(System.currentTimeMillis());
+      }
+      String line = stamp + " " + tag + " " + (message == null ? "" : message)
+        + " uptimeMs=" + SystemClock.elapsedRealtime() + " (direct)\n";
+      FileWriter out = new FileWriter(file, true);
+      try {
+        out.write(line);
+      } finally {
+        try {
+          out.close();
+        } catch (Throwable ignored) {
+          /* ignore */
+        }
+      }
+    } catch (Throwable ignored) {
+      /* never propagate */
     }
   }
 
@@ -1370,6 +1407,90 @@ public final class DiagnosticsLog {
           + " (previous=" + previous + ")"
           + " mqtThreads=" + lastMqtThreads
           + " note=0 表示 JS→原生调用将永远排队不执行");
+      }
+
+      // 每次探测顺带确保 mqt_* 线程都挂上了未捕获异常钩子（新线程会被自动补挂）
+      attachUncaughtHandlerOnQueueThreads();
+    } catch (Throwable ignored) {
+      /* ignore */
+    }
+  }
+
+  /**
+   * 挂在 RN 队列线程上的未捕获异常钩子：**只记录，然后照常转交**。
+   *
+   * 为什么挂在 per-thread 而不是抢全局默认 handler：全局默认 handler 已被
+   * react-native-exception-handler 占用（它内部先 `originalHandler = getDefault…()`
+   * 再 `setDefault…()`，见 ReactNativeExceptionHandlerModule.java:40-42）。
+   * 若我们也去换默认 handler，就会与它互相覆盖、并随重复安装不断加深调用链。
+   * 而 {@link Thread#setUncaughtExceptionHandler} 的优先级高于默认 handler，
+   * 因此给目标线程单独挂一个即可精准捕获，且末尾转交默认 handler 保证崩溃行为不变。
+   *
+   * 这条钩子回答的是："mqt_native_modules 是被异常弄死的，还是被正常 quit 的？"
+   * - 有 `UNCAUGHT thread=mqt_native_modules` ⇒ 异常致死（能拿到完整栈）
+   * - 只有 `QUEUE_THREAD present=0` 而无 UNCAUGHT ⇒ 不是异常，是有人 quit / 系统回收
+   */
+  private static final Thread.UncaughtExceptionHandler UNCAUGHT_LOGGER =
+    new Thread.UncaughtExceptionHandler() {
+      @Override
+      public void uncaughtException(Thread thread, Throwable throwable) {
+        try {
+          String threadName = thread != null && thread.getName() != null ? thread.getName() : "?";
+          String type = throwable == null ? "?" : throwable.getClass().getName();
+          String message = throwable == null ? "" : throwable.getMessage();
+          appendLineDirect("UNCAUGHT", "thread=" + threadName
+            + " type=" + type
+            + " msg=" + clipTo(message, 180)
+            + " threadAlive=" + (thread != null && thread.isAlive() ? 1 : 0));
+          if (throwable != null) {
+            StackTraceElement[] frames = throwable.getStackTrace();
+            int limit = frames == null ? 0 : Math.min(frames.length, 40);
+            for (int i = 0; i < limit; i++) {
+              appendLineDirect("UNCAUGHT", "  #" + i + " " + clipTo(String.valueOf(frames[i]), MAX_FRAME_CHARS));
+            }
+            Throwable cause = throwable.getCause();
+            if (cause != null) {
+              appendLineDirect("UNCAUGHT", "  caused by " + cause.getClass().getName()
+                + ": " + clipTo(cause.getMessage(), 160));
+            }
+          }
+          // 能进正常管道就也进一份，便于在 JS 侧日志里看到（线程若已坏则自动失效）
+          log("UNCAUGHT", "thread=" + threadName + " type=" + type);
+        } catch (Throwable ignored) {
+          /* never propagate */
+        }
+
+        // 保持原有崩溃语义：转交给原默认处理器（通常就是 react-native-exception-handler 那层）
+        try {
+          Thread.UncaughtExceptionHandler fallback = Thread.getDefaultUncaughtExceptionHandler();
+          if (fallback != null && fallback != UNCAUGHT_LOGGER) {
+            fallback.uncaughtException(thread, throwable);
+          } else {
+            // 没有默认处理器时，按"未捕获异常导致进程终止"的原语义处理
+            android.os.Process.killProcess(android.os.Process.myPid());
+          }
+        } catch (Throwable ignored) {
+          /* ignore */
+        }
+      }
+    };
+
+  /** 给所有 `mqt_*`（RN 队列线程）挂上未捕获异常钩子；幂等，可每跳重复调用。 */
+  private static void attachUncaughtHandlerOnQueueThreads() {
+    try {
+      Thread[] buffer = new Thread[512];
+      int count = Thread.enumerate(buffer);
+      for (int i = 0; i < count; i++) {
+        Thread thread = buffer[i];
+        if (thread == null) continue;
+        String name = thread.getName();
+        if (name == null || !name.startsWith("mqt_")) continue;
+        try {
+          if (thread.getUncaughtExceptionHandler() == UNCAUGHT_LOGGER) continue;
+          thread.setUncaughtExceptionHandler(UNCAUGHT_LOGGER);
+        } catch (Throwable ignored) {
+          /* 某些线程可能不允许修改，跳过 */
+        }
       }
     } catch (Throwable ignored) {
       /* ignore */
