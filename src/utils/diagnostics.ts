@@ -10,7 +10,7 @@ import {
 } from '@/utils/runtimeLog'
 import { getWatchdogSnapshot, getStallCount, getLastStall } from '@/utils/stallWatchdog'
 import { getHeartbeatSnapshot, resolvePlayerStateName } from '@/utils/playbackHeartbeat'
-import { readNativeDiagnosticsLog, getNativeDiagnosticsStatus, isNativeDiagnosticsAvailable } from '@/utils/nativeModules/diagnostics'
+import { readNativeDiagnosticsLog, readNativeEventLog, getNativeDiagnosticsStatus, isNativeDiagnosticsAvailable } from '@/utils/nativeModules/diagnostics'
 import { temporaryDirectoryPath, writeFile } from '@/utils/fs'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
@@ -35,6 +35,13 @@ import settingState from '@/store/setting/state'
 const maxSectionChars = 120000
 /** 原生日志段的独立上限 */
 const maxNativeSectionChars = 60000
+/**
+ * 关键事件流水账的导出上限。
+ *
+ * 该文件体积极小（只收稀有关键事件），因此给的额度比正文宽：
+ * 一旦正文被轮转吃掉，这份流水账就是唯一能还原"出事前几小时发生了什么"的数据。
+ */
+const maxEventJournalChars = 80000
 
 /**
  * 「复制诊断信息」用的预算：剪贴板同样有大小限制（且大文本会让系统卡顿），
@@ -43,6 +50,7 @@ const maxNativeSectionChars = 60000
 export const clipboardBudget = {
   maxSectionChars: 18000,
   maxNativeSectionChars: 12000,
+  maxEventJournalChars: 6000,
   memoryLimit: 120,
 }
 
@@ -154,10 +162,12 @@ const settingsSnapshot = (): Record<string, any> => ({
 export const buildFullDiagnostics = async(options?: {
   maxSectionChars?: number
   maxNativeSectionChars?: number
+  maxEventJournalChars?: number
   memoryLimit?: number
 }): Promise<string> => {
   const sectionLimit = options?.maxSectionChars ?? maxSectionChars
   const nativeLimit = options?.maxNativeSectionChars ?? maxNativeSectionChars
+  const eventJournalLimit = options?.maxEventJournalChars ?? maxEventJournalChars
   const now = Date.now()
   const logOptions = getOptions()
   const sections: string[] = []
@@ -234,6 +244,21 @@ export const buildFullDiagnostics = async(options?: {
     tailOf(nativeLog.replace(/^\n+|\n+$/g, ''), nativeLimit) || '[empty or unavailable]',
   ].join('\n'))
 
+  // ---- 关键事件流水账（几乎不轮转，优先级高于正文日志）----
+  // 放在正文之后，但内容极短；排查"跑十几小时后才复现一次"的问题时先看这一节，
+  // 因为正文本日志只留有十几个小时，而流水账可覆盖数周。
+  let eventLog = ''
+  try {
+    eventLog = await readNativeEventLog()
+  } catch (err) {
+    eventLog = '[read event journal failed]'
+  }
+  sections.push([
+    '===== event journal (rare key events; survives normal log rotation) =====',
+    tailOf(eventLog.replace(/^\n+|\n+$/g, ''), eventJournalLimit) ||
+      '[empty or unavailable]',
+  ].join('\n'))
+
   sections.push('===== end =====')
   return sections.join('\n\n')
 }
@@ -249,6 +274,7 @@ export const buildFullDiagnostics = async(options?: {
 export const writeFullDiagnosticsToFile = async(options?: {
   maxSectionChars?: number
   maxNativeSectionChars?: number
+  maxEventJournalChars?: number
   memoryLimit?: number
 }): Promise<{ path: string, size: number, text: string }> => {
   const text = await buildFullDiagnostics(options)

@@ -45,8 +45,10 @@ export interface RuntimeLogOptions {
 
 const defaultOptions: Required<RuntimeLogOptions> = {
   maxMemoryEntries: 1000,
-  maxFileSize: 512 * 1024,
-  maxBackupCount: 2,
+  // 保留期按"故障可能潜伏多久"来定，不是越大约好（实测播放中约 170KB/小时）：
+  // 2MB × (1 当前 + 3 备份) = 8MB ≈ 48 小时，足以覆盖已观测到的 18.7h / 30.1h 潜伏期。
+  maxFileSize: 2 * 1024 * 1024,
+  maxBackupCount: 3,
   flushBatchSize: 20,
   flushInterval: 2000,
   minLevel: 'debug',
@@ -852,6 +854,46 @@ export const readLogFile = async(): Promise<string> => {
   }
 }
 
+/**
+ * 只读取日志**尾部**（当前文件优先，不足再往前取备份），最多返回 maxChars 个字符。
+ *
+ * 为什么需要它：保留期提高后全文可达数 MB，一次性 `readFile` 进 JS 会占十几 MB 内存，
+ * 把设置页的「查看运行时日志」拖慢甚至卡住。这里按需从最新往旧取，凑够就停。
+ * 需要**完整**内容时请用 {@link readLogFile}（例如文件分享导出）。
+ */
+export const readLogFileTail = async(maxChars: number): Promise<string> => {
+  const { runtime } = getPaths()
+  if (!runtime || !(maxChars > 0)) return ''
+  try {
+    await flush()
+    const chunks: string[] = []
+    let total = 0
+    const isCurrentExists = await existsFile(runtime).catch(() => false)
+    if (isCurrentExists) {
+      const text = await readFile(runtime).catch(() => '')
+      if (text) {
+        chunks.unshift(text)
+        total += text.length
+      }
+    }
+    const maxBackup = state.options.maxBackupCount
+    for (let i = 1; i <= maxBackup && total < maxChars; i++) {
+      const path = backupPathOf(runtime, i)
+      const isExists = await existsFile(path).catch(() => false)
+      if (!isExists) continue
+      const text = await readFile(path).catch(() => '')
+      if (!text) continue
+      // 备份编号越大越旧，因此继续往前插
+      chunks.unshift(text)
+      total += text.length
+    }
+    const joined = chunks.join('\n')
+    return joined.length > maxChars ? joined.slice(joined.length - maxChars) : joined
+  } catch (err) {
+    return ''
+  }
+}
+
 interface PerformanceMemory {
   jsHeapSizeLimit?: number
   totalJSHeapSize?: number
@@ -1020,6 +1062,7 @@ export const runtimeLog = {
   clear,
   clearLogFiles,
   readLogFile,
+  readLogFileTail,
   recordMemory,
   isMemorySamplingSupported,
   startMemorySampling,

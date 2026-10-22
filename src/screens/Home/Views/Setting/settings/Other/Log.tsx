@@ -1,7 +1,7 @@
 import { memo, useRef, useState, useEffect } from 'react'
 import { View } from 'react-native'
 import { getLogs, clearLogs, getLogPath, flushLogs } from '@/utils/log'
-import { clearLogFiles, readLogFile, runtimeLogPath } from '@/utils/runtimeLog'
+import { clearLogFiles, readLogFileTail, runtimeLogPath } from '@/utils/runtimeLog'
 import {
   buildFullDiagnostics,
   writeFullDiagnosticsToFile,
@@ -94,13 +94,13 @@ export default memo(() => {
     })
   }
 
-  // 查看运行时日志（落盘文件全文 + 备份）。先 flush 保证包含刚刚产生的日志。
-  // 显示层做长度裁剪：日志可达 1.5MB，直接塞进 <Text> 会让界面明显卡顿；
-  // 完整内容请用「分享日志」（文件方式）。
+  // 查看运行时日志。先 flush 保证包含刚刚产生的日志。
+  // 只读尾部：保留期提高后全文可达 8MB，整份读进内存会明显拖慢界面；
+  // 需要完整内容时用「分享日志」（导出为文件，不受大小限制）。
   const handleShowRuntimeLog = () => {
     if (isFetchingRuntimeLog) return
     setIsFetchingRuntimeLog(true)
-    void flushLogs().then(async() => readLogFile()).then(text => {
+    void flushLogs().then(async() => readLogFileTail(maxRuntimeLogViewChars)).then(text => {
       if (isUnmountedRef.current) return
       setIsShowingRuntimeLog(true)
       refreshPaths()

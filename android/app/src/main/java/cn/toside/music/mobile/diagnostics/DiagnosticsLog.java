@@ -65,7 +65,19 @@ public final class DiagnosticsLog {
   private static final String LOG_FILE_NAME_ROTATED = "diagnostics-native.log.1";
   private static final String WRITER_THREAD_NAME = "diag-log";
 
-  private static final long MAX_LOG_BYTES = 512L * 1024L;
+  /*
+   * 关键事件流水账：只收"一行就够"的稀有关键事件，容量极小且几乎不轮转。
+   *
+   * 为什么需要它：正文日志（diagnostics-native.log / runtime.log）是会轮转的，
+   * 实测正文本底约 73 KB/小时，512 KB×2 只能留十几个小时；而本类故障的进程往往已存活
+   * 18~30 小时，触发因素常被轮转吃掉。流水账只记录 TRIM / NATIVE_GAP / 线程与实例翻转 /
+   * 未捕获异常等，每小时至多条，256 KB×2 可覆盖数周，从而保证"关键时刻线"永不丢失。
+   */
+  private static final String EVENT_LOG_FILE_NAME = "diagnostics-events.log";
+  private static final String EVENT_LOG_FILE_NAME_ROTATED = "diagnostics-events.log.1";
+  private static final long MAX_EVENT_LOG_BYTES = 256L * 1024L;
+
+  private static final long MAX_LOG_BYTES = 2L * 1024L * 1024L;
   private static final int MAX_PENDING_LINES = 500;
   private static final int MAX_READ_CHARS = 300000;
   private static final int MAX_MESSAGE_CHARS = 200;
@@ -130,6 +142,7 @@ public final class DiagnosticsLog {
   private static volatile boolean initialized = false;
   private static volatile Context appContext = null;
   private static volatile File logFile = null;
+  private static volatile File eventLogFile = null;
   private static volatile Handler writer = null;
 
   private static final ArrayDeque<Line> pendingLines = new ArrayDeque<Line>();
@@ -243,7 +256,10 @@ public final class DiagnosticsLog {
 
         try {
           File dir = appContext.getFilesDir();
-          if (dir != null) logFile = new File(dir, LOG_FILE_NAME);
+          if (dir != null) {
+            logFile = new File(dir, LOG_FILE_NAME);
+            eventLogFile = new File(dir, EVENT_LOG_FILE_NAME);
+          }
         } catch (Throwable ignored) {
           logFile = null;
         }
@@ -279,6 +295,8 @@ public final class DiagnosticsLog {
   /** Appends one line. Never throws, never blocks the caller. */
   public static void log(String tag, String message) {
     try {
+      // 关键事件额外抄一份进"流水账"（不轮转式保留，见 EVENT_LOG_FILE_NAME 注释）
+      if (isEventTag(tag)) appendEventLine(tag, message);
       Line line = new Line(tag, message, System.currentTimeMillis(), SystemClock.elapsedRealtime());
       Handler handler = writer;
       if (handler == null) {
@@ -541,6 +559,80 @@ public final class DiagnosticsLog {
    * 只是把行塞进队列、再由 diag-log 线程异步落盘，崩溃收尾阶段可能来不及。
    * 任何异常都吞掉 —— 它运行在正在崩溃的线程上，绝不能再抛。
    */
+  /** 判断该 tag 是否进"关键事件流水账"（白名单，避免把高频事件也抄进去） */
+  private static boolean isEventTag(String tag) {
+    if (tag == null) return false;
+    switch (tag) {
+      case "PROCESS":
+      case "TRIM":
+      case "ACTIVITY":
+      case "NATIVE_GAP":
+      case "JS_UNRESPONSIVE":
+      case "JS_ACK":
+      case "QUEUE_THREAD":
+      case "REACT_INSTANCE":
+      case "UNCAUGHT":
+      case "SILENT_PLAYBACK":
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * 追加一条到关键事件流水账（独立文件，256KB 才轮转一次，可覆盖数周）。
+   * 同步直写，理由同 {@link #appendLineDirect}：这类事件常发生在进程将死之际。
+   */
+  private static void appendEventLine(String tag, String message) {
+    try {
+      File file = eventLogFile;
+      if (file == null) return;
+      if (file.length() > MAX_EVENT_LOG_BYTES) {
+        File rotated = new File(file.getParentFile(), EVENT_LOG_FILE_NAME_ROTATED);
+        if (rotated.exists()) rotated.delete();
+        file.renameTo(rotated);
+      }
+      String stamp;
+      try {
+        SimpleDateFormat fmt = writerFormat;
+        stamp = fmt != null ? fmt.format(new Date())
+          : new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
+      } catch (Throwable ignored) {
+        stamp = String.valueOf(System.currentTimeMillis());
+      }
+      String line = stamp + " " + tag + " " + (message == null ? "" : message)
+        + " uptimeMs=" + SystemClock.elapsedRealtime() + "\n";
+      FileWriter out = new FileWriter(file, true);
+      try {
+        out.write(line);
+      } finally {
+        try {
+          out.close();
+        } catch (Throwable ignored) {
+          /* ignore */
+        }
+      }
+    } catch (Throwable ignored) {
+      /* never propagate */
+    }
+  }
+
+  /**
+   * 读取关键事件流水账（轮转备份在前、当前在后）。供诊断导出使用。
+   */
+  public static String readEventLog() {
+    try {
+      File file = eventLogFile;
+      if (file == null) return "";
+      StringBuilder sb = new StringBuilder();
+      appendFile(sb, new File(file.getParentFile(), EVENT_LOG_FILE_NAME_ROTATED));
+      appendFile(sb, file);
+      return sb.toString();
+    } catch (Throwable ignored) {
+      return "";
+    }
+  }
+
   private static void appendLineDirect(String tag, String message) {
     try {
       File file = logFile;

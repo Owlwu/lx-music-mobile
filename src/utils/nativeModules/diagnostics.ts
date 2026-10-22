@@ -17,6 +17,7 @@ import BackgroundTimer from 'react-native-background-timer'
 interface DiagnosticsNativeModule {
   heartbeat?: (jsTs: number) => Promise<boolean>
   readLog?: () => Promise<string>
+  readEventLog?: () => Promise<string>
   getStatus?: () => Promise<string>
   log?: (tag: string, message: string) => void
   addListener?: (eventName: string) => void
@@ -70,6 +71,24 @@ export const getNativeDiagnosticsStatus = async(): Promise<string> => {
   }
 }
 
+/**
+ * 读取原生"关键事件流水账"（失败返回空串）。
+ *
+ * 这是与正文本日志分开的一个小文件，只收 TRIM / NATIVE_GAP / 线程与实例翻转 /
+ * 未捕获异常等稀有关键事件，因此**几乎不会被轮转掉**。
+ * 对于"跑十几小时后才复现一次"的问题，它比正文日志更有价值：
+ * 正文只能留十几个小时，流水账可覆盖数周。
+ */
+export const readNativeEventLog = async(): Promise<string> => {
+  try {
+    const mod = getModule()
+    if (!mod?.readEventLog) return ''
+    return await mod.readEventLog()
+  } catch (err) {
+    return ''
+  }
+}
+
 /** 往原生时间线里插一条 JS 侧标记（用于把两边日志对齐到同一时刻） */
 export const logToNativeTimeline = (tag: string, message: string): void => {
   try {
@@ -111,6 +130,7 @@ export const nativeDiagnostics = {
   isAvailable: isNativeDiagnosticsAvailable,
   sendAck: sendNativeJsAck,
   readLog: readNativeDiagnosticsLog,
+  readEventLog: readNativeEventLog,
   getStatus: getNativeDiagnosticsStatus,
   log: logToNativeTimeline,
   startAckLoop: startNativeJsAckLoop,

@@ -70,6 +70,22 @@ public class DiagnosticsModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
+  public void readEventLog(Promise promise) {
+    String content = "";
+    try {
+      content = DiagnosticsLog.readEventLog();
+    } catch (Throwable ignored) {
+      content = "";
+    }
+    if (content == null) content = "";
+    try {
+      promise.resolve(content);
+    } catch (Throwable ignored) {
+      // nothing left to do
+    }
+  }
+
+  @ReactMethod
   public void getStatus(Promise promise) {
     String status = "";
     try {
