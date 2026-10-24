@@ -17,8 +17,16 @@ import { useTheme } from '@/store/theme/hook'
 import { useStatus } from '@/store/sync/hook'
 import Text from '@/components/common/Text'
 import { SYNC_CODE } from '@/plugins/sync/constants'
+import log from '@/plugins/sync/log'
 
 const addressRxp = /^https?:\/\/\S+/i
+
+// connectServer 失败时会 reject（与桌面端 sync client 同一份实现），所有调用点都必须 catch，
+// 否则 RN 会把它记为 unhandled promise rejection，并向用户弹出 LogBox 报错通知。
+// 失败原因已经通过 syncStatus 显示在本页的状态文本 / Toast 上，这里只补一条日志。
+const handleConnectError = (err: Error) => {
+  log.warn('connect failed:', err.message)
+}
 
 const HostInput = memo(({ setHost, host, disabled }: {
   setHost: (host: string) => void
@@ -109,7 +117,11 @@ export default memo(({ host, setHost }: {
 
     if (enable) void addSyncHostHistory(host)
 
-    void (enable ? connectServer(host) : disconnectServer())
+    if (enable) {
+      void connectServer(host).catch(handleConnectError)
+    } else {
+      void disconnectServer()
+    }
   }, [host, setIsEnableSync])
 
 
@@ -147,7 +159,7 @@ export default memo(({ host, setHost }: {
   const handleSetCode = useCallback(() => {
     // const code = authCode.trim()
     // if (code.length != 6) return
-    void connectServer(host, authCode)
+    void connectServer(host, authCode).catch(handleConnectError)
     setAuthCode('')
     confirmAlertRef.current?.setVisible(false)
   }, [host, authCode])

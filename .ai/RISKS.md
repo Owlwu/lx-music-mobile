@@ -20,6 +20,13 @@ Fragile / high-risk areas. Read this before touching player, sync, native, or st
 - `src/plugins/sync/` talks to a **user-hosted server** over HTTP + WebSocket (`message2call`). Protocol is in `modules/base/message2call.ts`; versioned constants in `constants.ts`. There is no in-repo server, so protocol changes need coordination.
 - Auth uses AES + RSA (credentials encrypted, server public key RSA-wrapped) — `auth.ts`. Mismatched key handling breaks auth silently.
 - Sync mutates local lists via `global.list_event`/`dislike_event`; a race between a local edit and a server push can drop or duplicate items.
+- `connectServer()` **rejects** on failure (same contract as the PC client `client/index.ts` — keep the two mirrored).
+  Every call site must attach `.catch` (`core/init/sync.ts` startup auto-connect + the two calls in
+  `screens/.../Sync/IsEnable.tsx`). An unhandled rejection here is exactly what the user sees as the LogBox
+  notification "Possible unhandled promise rejection: Error: Connect service failed": the `hello` request can
+  take up to 10 s to time out, so it usually pops up *while the user is already playing music* rather than at boot.
+  The failure text is already published via `syncStatus` (Settings → Sync), so call sites should only log it
+  (`log.warn`, gated by the sync-log switch) instead of rethrowing.
 - Features synced: `list`, `dislike`, **`musicFile`** (local music files + sibling `.lrc`); history is still not synced.
 - `musicFile` writes/deletes **real files** inside `sync.musicFile.root`. Every incoming path is validated by
   `assertSafeRelPath` before being joined to the root — never bypass that check.
