@@ -24,12 +24,15 @@
 - 同步会改本地列表（`global.list_event` / `dislike_event`）；本地编辑与远端推送的竞态可能丢/重。
 - `musicFile` 会在 `sync.musicFile.root` 内**真实读写/删除文件**；入参路径一律过 `assertSafeRelPath`，
   不要绕过。
+- 手机端只做被同步的一方（PC 发起、PC 传 scope），别再往手机端加「发起同步」或「选择同步文件夹」，
+  否则会出现「手机端选了范围但 PC 发起时被忽略」的误导。
 - `musicFile` 的相等判定是「大小 + 内容签名」（首/尾 4 KiB 的 fnv1a32+djb2_32）；签名读失败会退回
   「仅大小」，同大小内容变更可能漏检（查 `[musicFileSync][WARN][scan] signature failed` 日志）。
 - 同名 `.lrc` 随音频一起搬运，不是独立条目；只改 `.lrc` 内容不会被识别为变更。
 - 冲突默认用对端覆盖；无断点续传，取消会留半截文件（下次同步表现为冲突）。
-- baseline 存在 `@music_file_sync_baseline`（AsyncStorage）。
+- 同步基线只在发起方（`@music_file_sync_baseline` 在桌面端），手机端没有。
 - `diff.ts` 与桌面端**逐字节镜像**，改一侧必须改另一侧（桌面端 `tests/music-file-fs.test.ts` 会断言）。
+  因此即使手机端不再用 `buildPlan` / `buildActions` / `buildBaseline`，也**不要**从手机端 `diff.ts` 里删。
 
 ## 3. 状态 / 事件系统
 - 整个 UI 响应式依赖 `global.state_event`（`setImmediate` 异步）。改了 state 不 emit = UI 不更新；

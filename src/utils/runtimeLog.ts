@@ -61,9 +61,6 @@ const levelWeight: Record<RuntimeLogLevel, number> = {
   error: 40,
 }
 
-// 原 error.log 的分隔符，保留兼容（设置页按该分隔符切分展示）
-const legacySeparator = '\n----lx log----\n'
-
 /**
  * 无条件安全执行：日志模块自身的任何异常都必须被吞掉，
  * 否则"记录日志"反而会把 App 搞崩。
@@ -147,8 +144,6 @@ interface RuntimeLogState {
   entries: RuntimeLogEntry[]
   /** 待写盘队列 */
   pending: string[]
-  /** 旧 error.log 的待写队列（保持旧分隔符格式） */
-  legacyPending: string[]
   /** 已 init 且文件就绪 */
   isReady: boolean
   /** init 之前的日志，init 后回灌（与 bootLog 模式一致） */
@@ -175,7 +170,6 @@ const state: RuntimeLogState = {
   options: { ...defaultOptions },
   entries: [],
   pending: [],
-  legacyPending: [],
   isReady: false,
   isInited: false,
   flushTimer: null,
@@ -194,27 +188,22 @@ const state: RuntimeLogState = {
  * 调用方见到空串即跳过所有文件操作，只保留内存缓冲。
  */
 let cachedRuntimePath: string | null = null
-let cachedLegacyPath: string | null = null
 
-const getPaths = (): { runtime: string, legacy: string } => {
+/** 运行时日志文件路径 */
+const getRuntimePath = (): string => {
   if (cachedRuntimePath == null) {
     try {
       const dir = temporaryDirectoryPath
       cachedRuntimePath = typeof dir == 'string' && dir ? `${dir}/runtime.log` : ''
-      cachedLegacyPath = typeof dir == 'string' && dir ? `${dir}/error.log` : ''
     } catch (err) {
       cachedRuntimePath = ''
-      cachedLegacyPath = ''
     }
   }
-  return { runtime: cachedRuntimePath, legacy: cachedLegacyPath ?? '' }
+  return cachedRuntimePath
 }
 
 /** 运行时日志文件路径（惰性解析；不可用时返回空串） */
-export const runtimeLogPath = (): string => getPaths().runtime
-
-/** 兼容旧调用方（error.log）的文件路径（惰性解析；不可用时返回空串） */
-export const legacyLogPath = (): string => getPaths().legacy
+export const runtimeLogPath = (): string => getRuntimePath()
 
 const backupPathOf = (path: string, index: number) => `${path}.${index}`
 
@@ -424,61 +413,40 @@ const utf8ByteLength = (text: string): number => {
 }
 
 const doFlush = async(): Promise<void> => {
-  const { runtime, legacy } = getPaths()
+  const runtime = getRuntimePath()
   if (!state.isReady || !runtime) return
   if (state.isFlushing || state.isRotating) return
-  // 分别取走两份待写内容
   const runtimeText = state.pending.join('')
-  const legacyText = state.legacyPending.join('')
-  if (!runtimeText && !legacyText) return
+  if (!runtimeText) return
   state.pending = []
-  state.legacyPending = []
   state.isFlushing = true
   try {
-    if (runtimeText) {
-      const addBytes = utf8ByteLength(runtimeText)
-      // 以 fs.stat 的真实字节数为权威来源，累加值只作为兜底估算
-      const size = await readSize(runtime)
-      state.currentSize = size
-      if (size + addBytes > state.options.maxFileSize) {
-        state.isRotating = true
-        clearFlushTimer()
-        try {
-          await appendFile(runtime, runtimeText)
-          await rotateFile(runtime)
-          state.currentSize = 0
-        } finally {
-          state.isRotating = false
-        }
-      } else {
+    const addBytes = utf8ByteLength(runtimeText)
+    // 以 fs.stat 的真实字节数为权威来源，累加值只作为兜底估算
+    const size = await readSize(runtime)
+    state.currentSize = size
+    if (size + addBytes > state.options.maxFileSize) {
+      state.isRotating = true
+      clearFlushTimer()
+      try {
         await appendFile(runtime, runtimeText)
-        state.currentSize = size + addBytes
+        await rotateFile(runtime)
+        state.currentSize = 0
+      } finally {
+        state.isRotating = false
       }
-    }
-    // 旧 error.log 通道：同样轮转，避免历史遗留的无限增长。
-    // 必须以「文件总大小」而非「本批长度」比较，否则几乎永不触发轮转。
-    if (legacyText && legacy) {
-      const addBytes = utf8ByteLength(legacyText)
-      const size = await readSize(legacy)
-      if (size + addBytes > state.options.maxFileSize) {
-        await appendFile(legacy, legacyText)
-        await rotateFile(legacy)
-      } else {
-        await appendFile(legacy, legacyText)
-      }
+    } else {
+      await appendFile(runtime, runtimeText)
+      state.currentSize = size + addBytes
     }
     state.hasWarnedWriteFailure = false
   } catch (err) {
     // 写失败：把内容放回队列下次再试，并且绝不抛出
     state.writeFailureCount++
-    if (runtimeText) state.pending = [runtimeText, ...state.pending]
-    if (legacyText) state.legacyPending = [legacyText, ...state.legacyPending]
+    state.pending = [runtimeText, ...state.pending]
     // 放回后仍要防止队列无限增长
     if (state.pending.length > state.options.maxMemoryEntries) {
       state.pending = state.pending.slice(-state.options.maxMemoryEntries)
-    }
-    if (state.legacyPending.length > state.options.maxMemoryEntries) {
-      state.legacyPending = state.legacyPending.slice(-state.options.maxMemoryEntries)
     }
     if (!state.hasWarnedWriteFailure) {
       state.hasWarnedWriteFailure = true
@@ -489,7 +457,7 @@ const doFlush = async(): Promise<void> => {
     // 只要还有未落盘内容就继续调度。
     // 原实现仅在"攒够一批"时调度：并发 flush 之后剩余的内容会一直留在内存里，
     // 后台进程被系统杀掉时这些日志全部丢失。
-    if (state.pending.length || state.legacyPending.length) scheduleFlush()
+    if (state.pending.length) scheduleFlush()
   }
 }
 
@@ -628,19 +596,17 @@ const analyzePreviousSession = async(path: string): Promise<{
 export const init = async(options?: RuntimeLogOptions): Promise<void> => {
   return safeRunAsync(async() => {
     if (options) state.options = { ...state.options, ...options }
-    const { runtime, legacy } = getPaths()
+    const runtime = getRuntimePath()
     if (!runtime) return
     if (state.isReady) return
     state.isReady = await ensureFileReady(runtime)
     if (!state.isReady) return
     state.currentSize = await readSize(runtime)
-    // 旧 error.log 也确保存在（设置页直接读它）
-    if (legacy) await ensureFileReady(legacy)
     // 读取上一次会话的信息（必须在写入本次会话标记之前完成）
     const previousSession = await analyzePreviousSession(runtime)
     // 回灌 init 之前的日志
     state.isInited = true
-    if (state.pending.length || state.legacyPending.length) await flush()
+    if (state.pending.length) await flush()
     pushEntry('info', 'RUNTIME_LOG', 'runtime log initialized', {
       path: runtime,
       maxMemoryEntries: state.options.maxMemoryEntries,
@@ -758,7 +724,7 @@ export const getSnapshot = (limit?: number, level?: RuntimeLogLevel): string => 
 
 /** 一次性导出全部诊断信息（内存快照 + 状态），用于反馈问题时粘贴 */
 export const exportDiagnostics = (): string => {
-  const { runtime } = getPaths()
+  const runtime = getRuntimePath()
   const lines = [
     '===== lx runtime log diagnostics =====',
     `export time: ${formatTimeText(Date.now())}`,
@@ -774,7 +740,7 @@ export const exportDiagnostics = (): string => {
     `approx file size: ${state.currentSize}`,
     `write failures: ${state.writeFailureCount}`,
     // 注意：这里只有"本次进程"的内存缓冲。上一次启动（往往才是出故障的那一次）
-    // 的记录需要通过 buildFullDiagnostics()（设置页「分享日志」/「复制诊断信息」）导出，
+    // 的记录需要通过 buildFullDiagnostics()（设置页「分享日志」）导出，
     // 或在本次启动时由 analyzePreviousSession() 注入到下方缓冲中。
     '===== recent logs (current process memory buffer only) =====',
     getSnapshot(),
@@ -805,7 +771,6 @@ export const clear = (): void => {
   safeRun(() => {
     state.entries = []
     state.pending = []
-    state.legacyPending = []
     clearFlushTimer()
   })
 }
@@ -814,7 +779,7 @@ export const clear = (): void => {
 export const clearLogFiles = async(): Promise<void> => {
   return safeRunAsync(async() => {
     clear()
-    const { runtime } = getPaths()
+    const runtime = getRuntimePath()
     if (!runtime) return
     await unlink(runtime).catch(() => {})
     const maxBackup = state.options.maxBackupCount
@@ -829,9 +794,9 @@ export const clearLogFiles = async(): Promise<void> => {
   })
 }
 
-/** 读取日志文本（当前文件 + 备份，最旧在前），供设置页展示 */
+/** 读取日志全文（当前文件 + 备份，最旧在前），供「分享日志」导出 */
 export const readLogFile = async(): Promise<string> => {
-  const { runtime } = getPaths()
+  const runtime = getRuntimePath()
   if (!runtime) return ''
   try {
     await flush()
@@ -849,46 +814,6 @@ export const readLogFile = async(): Promise<string> => {
       if (text) chunks.push(text)
     }
     return chunks.join('\n')
-  } catch (err) {
-    return ''
-  }
-}
-
-/**
- * 只读取日志**尾部**（当前文件优先，不足再往前取备份），最多返回 maxChars 个字符。
- *
- * 为什么需要它：保留期提高后全文可达数 MB，一次性 `readFile` 进 JS 会占十几 MB 内存，
- * 把设置页的「查看运行时日志」拖慢甚至卡住。这里按需从最新往旧取，凑够就停。
- * 需要**完整**内容时请用 {@link readLogFile}（例如文件分享导出）。
- */
-export const readLogFileTail = async(maxChars: number): Promise<string> => {
-  const { runtime } = getPaths()
-  if (!runtime || !(maxChars > 0)) return ''
-  try {
-    await flush()
-    const chunks: string[] = []
-    let total = 0
-    const isCurrentExists = await existsFile(runtime).catch(() => false)
-    if (isCurrentExists) {
-      const text = await readFile(runtime).catch(() => '')
-      if (text) {
-        chunks.unshift(text)
-        total += text.length
-      }
-    }
-    const maxBackup = state.options.maxBackupCount
-    for (let i = 1; i <= maxBackup && total < maxChars; i++) {
-      const path = backupPathOf(runtime, i)
-      const isExists = await existsFile(path).catch(() => false)
-      if (!isExists) continue
-      const text = await readFile(path).catch(() => '')
-      if (!text) continue
-      // 备份编号越大越旧，因此继续往前插
-      chunks.unshift(text)
-      total += text.length
-    }
-    const joined = chunks.join('\n')
-    return joined.length > maxChars ? joined.slice(joined.length - maxChars) : joined
   } catch (err) {
     return ''
   }
@@ -970,77 +895,6 @@ export const startMemorySampling = (interval = 30000): (() => void) => {
   }
 }
 
-/**
- * 兼容旧版 log.ts 的导出通道：
- * 旧 error.log 使用 '\n----lx log----\n' 分隔，设置页 Log.tsx 按该分隔符切分展示，
- * 因此这里继续沿用同样的落盘格式与文件名，保证既有调用方与 UI 行为不变；
- * 同时该条日志也进入内存环形缓冲，供"应用空白"时一次性导出。
- */
-export const writeLegacy = (level: 'LOG' | 'WARN' | 'ERROR', msg: string): void => {
-  safeRun(() => {
-    const normalized: RuntimeLogLevel = level == 'LOG' ? 'info' : level == 'WARN' ? 'warn' : 'error'
-    if (!shouldOutput(normalized)) return
-    const time = new Date().toLocaleString()
-    const timeNum = Date.now()
-    const entry: RuntimeLogEntry = {
-      time: timeNum,
-      timeText: formatTimeText(timeNum),
-      level: normalized,
-      tag: 'LEGACY',
-      text: `${time} ${level} ${msg}`,
-    }
-    state.entries.push(entry)
-    if (state.entries.length > state.options.maxMemoryEntries) {
-      state.entries.splice(0, state.entries.length - state.options.maxMemoryEntries)
-    }
-    // 旧格式：每条日志前加分隔符
-    state.legacyPending.push(`${legacySeparator}${msg}\n`)
-    if (!state.isReady) return
-    if (state.legacyPending.length >= state.options.flushBatchSize) {
-      void flush()
-    } else {
-      scheduleFlush()
-    }
-  })
-}
-
-/** 读取旧 error.log（含备份），并保留备份能力，避免历史文件无限增长 */
-export const readLegacyLogFile = async(): Promise<string> => {
-  const { legacy } = getPaths()
-  if (!legacy) return ''
-  try {
-    const isExists = await existsFile(legacy).catch(() => false)
-    if (!isExists) return ''
-    return await readFile(legacy).catch(() => '')
-  } catch (err) {
-    return ''
-  }
-}
-
-/** 清空旧 error.log 并保留轮转备份 */
-export const clearLegacyLogFile = async(): Promise<void> => {
-  return safeRunAsync(async() => {
-    const { legacy } = getPaths()
-    state.legacyPending = []
-    if (!legacy) return
-    await unlink(legacy).catch(() => {})
-    await writeFile(legacy, '').catch(() => {})
-  })
-}
-
-/** 启用旧 error.log 的轮转，防止其无限增长 */
-export const rotateLegacyFileIfNeeded = async(): Promise<void> => {
-  return safeRunAsync(async() => {
-    const { legacy } = getPaths()
-    if (!legacy) return
-    const isExists = await existsFile(legacy).catch(() => false)
-    if (!isExists) return
-    const size = await readSize(legacy)
-    if (size < state.options.maxFileSize) return
-    await rotateFile(legacy)
-  })
-}
-
 export const runtimeLog = {
   init,
   flush,
@@ -1062,14 +916,10 @@ export const runtimeLog = {
   clear,
   clearLogFiles,
   readLogFile,
-  readLogFileTail,
   recordMemory,
   isMemorySamplingSupported,
   startMemorySampling,
-  writeLegacy,
-  readLegacyLogFile,
-  clearLegacyLogFile,
-  rotateLegacyFileIfNeeded,
 }
+
 
 export default runtimeLog

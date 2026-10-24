@@ -57,8 +57,8 @@ src/
 │  ├─ music/               # index / local / utils（本地播放资源分发）
 │  ├─ player/              # player playInfo progress playedList tempPlayList volume ...
 │  ├─ init/                # 顺序初始化（common/dataInit/i18n/theme/sync/player/deeplink）
-│  ├─ list.ts lyric.ts dislikeList.ts musicFileSync.ts sync.ts desktopLyric.ts common.ts theme.ts
-├─ store/                  # 单例状态 + action + hook（list/player/setting/sync/musicFileSync/common/dislikeList/theme/Provider）
+│  ├─ list.ts lyric.ts dislikeList.ts sync.ts desktopLyric.ts common.ts theme.ts
+├─ store/                  # 单例状态 + action + hook（list/player/setting/sync/common/dislikeList/theme/Provider）
 ├─ event/                  # Event 基类 + state/app/list/dislike 事件
 ├─ plugins/                # player（TrackPlayer 封装）、sync（客户端）、storage（AsyncStorage）
 ├─ navigation/             # RNN 配置、屏幕注册、push helper、启动事件

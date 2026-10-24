@@ -1,7 +1,6 @@
 import { Alert, AppState } from 'react-native'
 // import { exitApp } from '@/utils/common'
 import { setJSExceptionHandler, setNativeExceptionHandler } from 'react-native-exception-handler'
-import { log } from '@/utils/log'
 import { error as runtimeError, flushSyncBestEffort, getSnapshot } from '@/utils/runtimeLog'
 import { getWatchdogSnapshot } from '@/utils/stallWatchdog'
 import { getHeartbeatSnapshot } from '@/utils/playbackHeartbeat'
@@ -12,7 +11,7 @@ import { toast, isActive } from './tools'
  * 这些字段是排查"长时间听歌后歌曲不播放/应用空白"时判断"崩溃前在播什么、
  * 播放器处于什么状态"的直接证据，因此必须随异常一起落盘。
  *
- * 注意：这里的字段会被写进"用户几乎必然会上报"的 error.log，
+ * 注意：这里的字段会被写进"用户几乎必然会上报"的运行日志（设置页「分享日志」），
  * 因此宁可多带几个标量，也不要在事后靠猜。
  */
 const getPlayContext = () => {
@@ -68,12 +67,12 @@ const errorHandler = (e: Error, isFatal: boolean) => {
   ]
   if (isFatal) {
     if (excludedErrors.some((excludedError) => e.message.includes(excludedError))) {
-      toast('应用遇到了错误，如果你有固定的复现方式，请截图并在 GitHub 反馈（并附上具体的操作步骤，以及“设置-错误日志”的内容）')
+      toast('应用遇到了错误，如果你有固定的复现方式，请截图并在 GitHub 反馈（并附上具体的操作步骤，以及“设置-其他-日志”里「分享日志」导出的文件）')
     } else {
       Alert.alert(
         '💥Unexpected error occurred💥',
         `
-  应用出 bug 了😭，以下是错误异常信息。请截图并在 GitHub 反馈（并附上刚才你进行了什么操作，以及附上“设置-错误日志”的内容）。现在应用可能会出现异常，若出现异常请尝试强制结束应用后重新启动！
+  应用出 bug 了😭，以下是错误异常信息。请截图并在 GitHub 反馈（并附上刚才你进行了什么操作，以及附上“设置-其他-日志”里「分享日志」导出的文件）。现在应用可能会出现异常，若出现异常请尝试强制结束应用后重新启动！
 
   Error:
   ${isFatal ? 'Fatal:' : ''} ${e.name} ${e.message}
@@ -87,8 +86,8 @@ const errorHandler = (e: Error, isFatal: boolean) => {
       )
     }
   }
-  log.error(e.stack)
-  // 除现有 log.error 外，同时写入 runtimeLog 并带上播放上下文 + 栈，然后紧急落盘
+  // 异常本身（含栈）由下面的 flushFatalContext 写进运行日志（tag=FATAL），
+  // 并带上播放上下文后紧急落盘，因此这里不再额外写一条纯文本日志。
   flushFatalContext('JS exception', {
     name: e.name,
     message: e.message,
@@ -104,7 +103,6 @@ if (process.env.NODE_ENV !== 'development') {
   setJSExceptionHandler(errorHandler)
 
   setNativeExceptionHandler((errorString) => {
-    log.error(errorString)
     // 原生异常同样必须带上播放上下文并紧急落盘，否则崩溃时会丢失全部排查线索
     flushFatalContext('native exception', {
       errorString,

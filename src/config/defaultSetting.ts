@@ -71,7 +71,6 @@ const defaultSetting: LX.AppSetting = {
 
   'sync.enable': false,
   'sync.musicFile.root': '',
-  'sync.musicFile.scope': [],
 
   // 'theme.id': 'blue_plus',
   'theme.id': 'green',

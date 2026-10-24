@@ -32,8 +32,6 @@ const MAX_SCAN_DEPTH = 32
 
 export const getRootPath = () => (settingState.setting['sync.musicFile.root'] ?? '').trim()
 
-export const getScope = (): string[] => settingState.setting['sync.musicFile.scope'] ?? []
-
 const trimEnd = (path: string) => path.replace(/\/+$/, '')
 
 /** 把协议的相对路径还原成本机绝对路径（含安全校验） */
@@ -125,7 +123,7 @@ const readFileSignature = async(absPath: string, size: number): Promise<string |
 }
 
 /** 扫描 scope 内所有文件夹下的音频与歌词文件 */
-export const scanEntries = async(root: string, scope: readonly string[] = getScope()): Promise<ScanEntry[]> => {
+export const scanEntries = async(root: string, scope: readonly string[]): Promise<ScanEntry[]> => {
   const entries: ScanEntry[] = []
   const walk = async(absDir: string, relDir: string, depth: number) => {
     if (depth > MAX_SCAN_DEPTH) return
@@ -152,40 +150,13 @@ export const scanEntries = async(root: string, scope: readonly string[] = getSco
   return entries
 }
 
-export const scanIndex = async(root: string, scope: readonly string[] = getScope()): Promise<FileIndex> => {
+export const scanIndex = async(root: string, scope: readonly string[]): Promise<FileIndex> => {
   if (!root) throw new Error('未设置同步歌曲存放路径')
   log.info('scan', `root=${root} scope=${JSON.stringify(scope)}`)
   const entries = await scanEntries(root, scope)
   const index = buildIndex(entries)
   log.info('scan', `done root=${root} entries=${entries.length} folders=${index.folders.length} files=${index.files.length}`)
   return index
-}
-
-/** 扫描根目录下的文件夹树，附带音频数量，用于同步范围选择 */
-export const scanFolderTree = async(root: string): Promise<LX.Sync.MusicFile.FolderNode[]> => {
-  log.info('scanTree', `root=${root}`)
-  const build = async(absDir: string, relDir: string): Promise<LX.Sync.MusicFile.FolderNode[]> => {
-    const files = await readDirSafe(absDir)
-    const nodes: LX.Sync.MusicFile.FolderNode[] = []
-    for (const file of files) {
-      if (!file.isDirectory) continue
-      const relPath = relDir.length ? `${relDir}/${file.name}` : file.name
-      const children = await build(file.path, relPath)
-      const own = (await readDirSafe(file.path)).filter(item => item.isFile && isAudioFileName(item.name)).length
-      nodes.push({
-        name: file.name,
-        path: relPath,
-        audioCount: own,
-        totalCount: own + children.reduce((sum, child) => sum + child.totalCount, 0),
-        children,
-      })
-    }
-    nodes.sort((a, b) => a.name.localeCompare(b.name))
-    return nodes
-  }
-  const tree = await build(root, '')
-  log.info('scanTree', `done root=${root} folders=${tree.length}`)
-  return tree
 }
 
 /**

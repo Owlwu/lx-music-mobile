@@ -2,6 +2,7 @@ import { temporaryDirectoryPath, readDir, unlink, extname, readFile, type FileTy
 import { readPic as _readPic, readLyric as _readLyric } from 'react-native-local-media-metadata'
 import iconv from 'iconv-lite'
 import { log } from '@/utils/log'
+import { importLog } from '@/utils/importLog'
 export {
   type MusicMetadata,
   type MusicMetadataFull,
@@ -84,7 +85,11 @@ export const scanAudioFiles = async(dirPath: string): Promise<FileType[]> => {
   try {
     files = await readDir(dirPath)
   } catch (error: any) {
-    log.warn(`Failed to scan folder: ${dirPath}\n${error.stack ?? error.message}`)
+    // 这一步只有“导入本地歌曲”会走到，属于用户要看的导入失败记录
+    importLog.warn('读取目录失败，该目录下的歌曲不会被导入', {
+      dir: dirPath,
+      error: error?.stack ?? error?.message ?? error,
+    })
     return audioFiles
   }
   for (const file of files) {

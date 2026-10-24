@@ -3,7 +3,6 @@ import type { InitState as CommonState } from '@/store/common/state'
 import type { InitState as ListState } from '@/store/list/state'
 import type { InitState as PlayerState } from '@/store/player/state'
 import { type I18n } from '@/lang'
-import type { InitState as MusicFileSyncState } from '@/store/musicFileSync/state'
 
 
 // {
@@ -92,10 +91,6 @@ export class StateEvent extends Event {
 
   syncStatusUpdated(status: LX.Sync.Status) {
     this.emit('syncStatusUpdated', status)
-  }
-
-  musicFileSyncUpdated(info: MusicFileSyncState) {
-    this.emit('musicFileSyncUpdated', info)
   }
 
   componentIdsUpdated(ids: CommonState['componentIds']) {

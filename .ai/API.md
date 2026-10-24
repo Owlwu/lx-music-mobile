@@ -41,6 +41,9 @@
 
 路径相对各自 `sync.musicFile.root`、`/` 分隔、过 `assertSafeRelPath`；分块 192 KiB（base64）。
 
+手机端**只实现这张表**（被 PC 调用的一方）：同步由 PC 端发起，`scope` 也由 PC 传入，
+因此手机端没有 compare/apply、变更清单 UI 与同步基线（这些留在桌面端）。
+
 ## 3. 原生模块桥（`src/utils/nativeModules/`）
 
 | 文件 | Android 包 | 作用 |

@@ -356,14 +356,10 @@ declare global {
       'sync.enable': boolean
 
       /**
-       * 本地音乐文件同步：同步歌曲存放路径（本机绝对路径）
+       * 本地音乐文件同步：同步歌曲存放路径（本机绝对路径）。
+       * 参与同步的文件夹由 PC 端发起同步时决定，手机端不再保存自己的 scope。
        */
       'sync.musicFile.root': string
-
-      /**
-       * 本地音乐文件同步：已勾选的同步文件夹（相对歌曲存放路径），空数组表示根目录全部
-       */
-      'sync.musicFile.scope': string[]
     }
   }
 }

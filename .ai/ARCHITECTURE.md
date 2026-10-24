@@ -145,7 +145,7 @@ graph LR
   CC -- WebSocket RPC message2call --> SRV
   CC -- list/dislike --> LE[global.list_event / dislike_event]
   LE --> DataP[core/list.ts + utils/data.ts]
-  CC -- musicFile --> MF[client/modules/musicFile]
+  CC -- musicFile（仅对端 RPC，PC 发起） --> MF[client/modules/musicFile]
   MF -- 读写本机文件 --> FS[utils/fs.ts]
 ```
 

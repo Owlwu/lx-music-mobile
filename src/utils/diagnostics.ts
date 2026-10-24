@@ -1,13 +1,13 @@
 import { AppState, Platform } from 'react-native'
 import {
   readLogFile,
-  legacyLogPath,
   runtimeLogPath,
   getSessionId,
   getSessionStartTime,
   getSnapshot,
   getOptions,
 } from '@/utils/runtimeLog'
+import { readImportLog, importLogPath } from '@/utils/importLog'
 import { getWatchdogSnapshot, getStallCount, getLastStall } from '@/utils/stallWatchdog'
 import { getHeartbeatSnapshot, resolvePlayerStateName } from '@/utils/playbackHeartbeat'
 import { readNativeDiagnosticsLog, readNativeEventLog, getNativeDiagnosticsStatus, isNativeDiagnosticsAvailable } from '@/utils/nativeModules/diagnostics'
@@ -16,19 +16,18 @@ import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
 
 /**
- * 完整诊断导出
+ * 完整诊断导出（设置页「分享日志」）
  *
- * 与旧的「复制诊断信息」的本质区别（这就是本次修复的核心）：
- * 旧实现调用 runtimeLog.exportDiagnostics()，它只导出**当前进程的内存缓冲**。
- * 但故障发生在后台播放时，而用户的习惯是"杀掉应用重开再看日志"——
- * 于是故障那一次进程的记录全部消失，导出的日志里只剩下重启后的几行启动日志，
- * 完全无法排查（这正是用户提供的三份日志的真实情况）。
- *
- * 现在改为导出：
+ * 导出内容：
  * 1. 当前进程内存缓冲（含启动时回灌的"上一次会话尾部"，见 runtimeLog.analyzePreviousSession）；
  * 2. **落盘文件全文**（runtime.log + 轮转备份，跨多次启动）；
  * 3. **原生侧日志**（独立于 JS 线程，JS 死后仍然有记录）；
- * 4. 即时状态快照（原生播放器 state/position/duration/queue、心跳、看门狗、相关设置）。
+ * 4. **关键事件流水账**（覆盖数周，正文被轮转吃掉时靠它还原时间线）；
+ * 5. 导入本地歌曲的失败记录（与「查看日志」同一份内容，便于一次导出就够排查）；
+ * 6. 即时状态快照（原生播放器 state/position/duration/queue、心跳、看门狗、相关设置）。
+ *
+ * 这些内容全部来自同一条运行日志链路，因此「查看运行时日志」「复制诊断信息」这两个
+ * 只做「节选/换载体」的按钮已删除，避免与「分享日志」功能重复。
  */
 
 /** 单段日志最多导出多少字符，避免生成超大文本 */
@@ -42,31 +41,29 @@ const maxNativeSectionChars = 60000
  * 一旦正文被轮转吃掉，这份流水账就是唯一能还原"出事前几小时发生了什么"的数据。
  */
 const maxEventJournalChars = 80000
+/** 导入日志段的独立上限（导入失败记录本身很短，这里只是兜底） */
+const maxImportLogChars = 40000
 
 /**
- * 「复制诊断信息」用的预算：剪贴板同样有大小限制（且大文本会让系统卡顿），
- * 因此这条路径只导出精简版，完整内容请走「分享日志」（文件方式，不受限）。
+ * 文本分享降级路径用的预算：剪贴板/Intent.EXTRA_TEXT 同样有大小限制
+ * （且大文本会让系统卡顿），因此这条路径只导出精简版；
+ * 正常路径是「分享日志」导出成文件，不受大小限制。
  */
 export const clipboardBudget = {
   maxSectionChars: 18000,
   maxNativeSectionChars: 12000,
   maxEventJournalChars: 6000,
+  maxImportLogChars: 6000,
   memoryLimit: 120,
 }
 
-/** 剪贴板文本上限（字符）。超过则截断并提示用户改用「分享日志」 */
+/** 文本分享的字符上限，超过则截断 */
 export const maxClipboardChars = 60000
 
 /** 按字符数裁剪文本（保留头部：诊断的结论与即时状态在最前面） */
 export const clipText = (text: string, maxChars: number): string => {
   if (text.length <= maxChars) return text
   return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars]`
-}
-
-/** 按字符数裁剪并保留尾部（日志类文本的最新内容在末尾，查看弹窗用这个） */
-export const tailClip = (text: string, maxChars: number): string => {
-  if (text.length <= maxChars) return text
-  return `[truncated ${text.length - maxChars} chars from the beginning]\n${text.slice(text.length - maxChars)}`
 }
 
 const tailOf = (text: string, max = maxSectionChars): string => {
@@ -157,17 +154,19 @@ const settingsSnapshot = (): Record<string, any> => ({
 /**
  * 构造完整诊断文本。永远 resolve，任何一步失败都降级为占位文本。
  *
- * @param options 可覆盖各段上限（「复制诊断信息」用精简预算，见 clipboardBudget）
+ * @param options 可覆盖各段上限（文本分享降级路径用精简预算，见 clipboardBudget）
  */
 export const buildFullDiagnostics = async(options?: {
   maxSectionChars?: number
   maxNativeSectionChars?: number
   maxEventJournalChars?: number
+  maxImportLogChars?: number
   memoryLimit?: number
 }): Promise<string> => {
   const sectionLimit = options?.maxSectionChars ?? maxSectionChars
   const nativeLimit = options?.maxNativeSectionChars ?? maxNativeSectionChars
   const eventJournalLimit = options?.maxEventJournalChars ?? maxEventJournalChars
+  const importLogLimit = options?.maxImportLogChars ?? maxImportLogChars
   const now = Date.now()
   const logOptions = getOptions()
   const sections: string[] = []
@@ -181,7 +180,7 @@ export const buildFullDiagnostics = async(options?: {
     `platform: ${Platform.OS} ${String(Platform.Version)}`,
     `app state: ${AppState.currentState}`,
     `runtime log path: ${runtimeLogPath() || '[unavailable]'}`,
-    `legacy log path: ${legacyLogPath() || '[unavailable]'}`,
+    `import log path: ${importLogPath() || '[unavailable]'}`,
     `log options: ${JSON.stringify(logOptions)}`,
     `native diagnostics module: ${isNativeDiagnosticsAvailable() ? 'available' : 'UNAVAILABLE'}`,
   ].join('\n'))
@@ -259,6 +258,20 @@ export const buildFullDiagnostics = async(options?: {
       '[empty or unavailable]',
   ].join('\n'))
 
+  // ---- 导入本地歌曲的失败记录 ----
+  // 与设置页「查看日志」展示的是同一份内容：用户报告"这批歌导不进来"时，
+  // 一次「分享日志」就能把运行日志与导入失败原因一起给到。
+  let importLogText = ''
+  try {
+    importLogText = await readImportLog()
+  } catch (err) {
+    importLogText = '[read import.log failed]'
+  }
+  sections.push([
+    `===== import log (local song import; same as the in-app 「查看日志」, tail ${importLogLimit} chars) =====`,
+    tailOf(importLogText.replace(/^\n+|\n+$/g, ''), importLogLimit) || '[empty]',
+  ].join('\n'))
+
   sections.push('===== end =====')
   return sections.join('\n\n')
 }
@@ -275,6 +288,7 @@ export const writeFullDiagnosticsToFile = async(options?: {
   maxSectionChars?: number
   maxNativeSectionChars?: number
   maxEventJournalChars?: number
+  maxImportLogChars?: number
   memoryLimit?: number
 }): Promise<{ path: string, size: number, text: string }> => {
   const text = await buildFullDiagnostics(options)
@@ -290,7 +304,6 @@ export const diagnostics = {
   clipboardBudget,
   maxClipboardChars,
   clipText,
-  tailClip,
 }
 
 export default diagnostics

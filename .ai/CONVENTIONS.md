@@ -37,7 +37,9 @@
 
 ## 错误处理与日志
 - 网络/异步失败映射到 `utils/message.ts` 的 `requestMsg` 码，用户可见文案用 `t(requestMsg.<code>)`
-- 诊断日志用 `utils/log`（`log.error/info`）；启动日志 `utils/bootLog`；全局异常 `utils/errorHandle.ts`
+- 诊断日志用 `utils/log`（`log.error/info`，统一落到 `runtime.log`）；启动日志 `utils/bootLog`；全局异常 `utils/errorHandle.ts`
+- **导入本地歌曲**的失败记录用 `utils/importLog`（单独落 `import.log`，只在设置页「查看日志」展示）；
+  其它模块不要写这一份，否则用户看导入失败原因时会被无关错误淹没
 - 取消请求优先用 `httpFetch` 的 `cancelHttp()` 模式（模块内保留 `_*_RequestObj`）
 
 ## 持久化

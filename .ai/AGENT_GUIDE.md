@@ -28,7 +28,7 @@
 | 首页布局 | `screens/Home/Vertical/`、`screens/Home/Horizontal/` |
 | 设置项 UI | `screens/Home/Views/Setting/settings/<分组>/` |
 | 原生模块 | `src/utils/nativeModules/` + `android/app/src/main/java/cn/toside/music/mobile/` |
-| 诊断日志 | `utils/log.ts`、`runtimeLog.ts`、`bootLog.ts`、`stallWatchdog.ts`、`playbackHeartbeat.ts` |
+| 诊断日志 | `utils/log.ts`、`runtimeLog.ts`、`importLog.ts`（导入本地歌曲失败）、`bootLog.ts`、`stallWatchdog.ts`、`playbackHeartbeat.ts` |
 
 ## 各层规则
 - **UI** → `src/screens/*`、`src/components/*`

@@ -76,7 +76,7 @@ UI（PlayerBar / PlayDetail）重渲染；播放进度写 utils/data.ts（节流
   → plugins/sync/client（HTTP hello → id → auth → WebSocket RPC）
       ├─ modules/list    列表双向同步（listEvent）
       ├─ modules/dislike 不喜欢同步（dislikeEvent）
-      └─ modules/musicFile 本地音乐文件同步（用户手动触发）
+      └─ modules/musicFile 本地音乐文件同步（只做对端 RPC，由 PC 端发起）
 ```
 
 - 认证：AES + RSA（`client/auth.ts`）；服务端由桌面端提供。
@@ -85,18 +85,21 @@ UI（PlayerBar / PlayDetail）重渲染；播放进度写 utils/data.ts（节流
 ### 5.1 本地音乐文件同步（`musicFile`）
 
 ```
-设置 → 音乐文件同步（Sync/MusicFileSync）
-  → core/musicFileSync.ts
-  → plugins/sync/client/modules/musicFile/service.ts
-      ├─ localFs.ts  扫描 root（scope 子目录）、分块读写、删除（含同名 .lrc）、算内容签名
-      ├─ diff.ts     纯函数：变更分类 + 执行计划（与桌面端逐字节一致）
-      ├─ baseline    AsyncStorage `@music_file_sync_baseline`（上次同步认同的路径）
-      └─ handler.ts  对端 RPC（musicFile_* 方法）
+PC 设置 → 音乐文件同步 → 扫描/比较/开始同步（发起方在 PC）
+  → RPC 驱动手机端：
+      plugins/sync/client/modules/musicFile/handler.ts
+      service.ts（getRoot / getIndex(scope) / readChunk / writeChunk / removeFile）
+      ├─ localFs.ts  扫描 root（scope 由 PC 传入）、分块读写、删除（含同名 .lrc）、算内容签名
+      └─ diff.ts     纯函数：索引构建（与桌面端逐字节一致，含变更分类等纯逻辑）
 ```
 
+- 手机端**只设置 `sync.musicFile.root`**（同步歌曲存放路径）；同步一律在 PC 端发起，
+  「参与同步的文件夹」也在 PC 端勾选，PC 会把自己的 scope 一起传给手机端
+  （`peer.musicFile_get_index(scope)`），因此手机端不再有自己的 scope 设置。
+- 变更清单、进度、同步基线都在发起方（PC）；手机端没有 compare/apply。
 - 路径相对各自 `sync.musicFile.root`、`/` 分隔，过 `assertSafeRelPath` 校验。
 - 相等判定：文件大小 + 内容签名（首/尾 4 KiB 的 fnv1a32+djb2_32）；签名失败退回「仅大小」。
-- 冲突默认用对端覆盖；UI 有「全部用本地/对端」批量按钮；无断点续传。
+- 冲突默认用对端覆盖；无断点续传。
 - 设计契约：`lx-music-desktop/doc/music-file-sync/本地音乐文件同步-设计.md`。
 
 ## 6. 文件管理器打开音频（deeplink）

@@ -43,7 +43,7 @@ const mergeSetting = (originSetting: LX.AppSetting, targetSetting?: Partial<LX.A
     const targetSettingKeys = Object.keys(targetSetting)
 
     // 只为「目标里确实带了值」的键做合并；判断是否变更必须走深比较，
-    // 否则 sync.musicFile.scope 这类数组/对象设置会被整条丢弃（永远存不下来）。
+    // 否则数组/对象类型的设置项会被整条丢弃（永远存不下来）。
     const keys = (originSettingKeys.length > targetSettingKeys.length ? targetSettingKeys : originSettingKeys) as Array<keyof LX.AppSetting>
     for (const key of keys) {
       const targetValue: any = targetSetting[key]

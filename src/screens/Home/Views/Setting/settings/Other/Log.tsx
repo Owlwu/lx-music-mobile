@@ -1,157 +1,91 @@
 import { memo, useRef, useState, useEffect } from 'react'
 import { View } from 'react-native'
-import { getLogs, clearLogs, getLogPath, flushLogs } from '@/utils/log'
-import { clearLogFiles, readLogFileTail, runtimeLogPath } from '@/utils/runtimeLog'
+import { clearLogFiles, runtimeLogPath } from '@/utils/runtimeLog'
+import { readImportLog, clearImportLogFile, importLogPath } from '@/utils/importLog'
 import {
   buildFullDiagnostics,
   writeFullDiagnosticsToFile,
   clipboardBudget,
   maxClipboardChars,
   clipText,
-  tailClip,
 } from '@/utils/diagnostics'
-// import { gzip, ungzip } from 'pako'
 
 import SubTitle from '../../components/SubTitle'
 import Button from '../../components/Button'
-import { createStyle, toast, clipboardWriteText, confirmDialog } from '@/utils/tools'
+import { createStyle, toast, confirmDialog } from '@/utils/tools'
 import { shareText, shareFile } from '@/utils/nativeModules/utils'
 import ConfirmAlert, { type ConfirmAlertType } from '@/components/common/ConfirmAlert'
 import CheckBoxItem from '../../components/CheckBoxItem'
 import { useI18n } from '@/lang'
 import Text from '@/components/common/Text'
 
-// 与既有实现保持一致的旧日志切分规则（error.log 用 '----lx log----' 分隔）
-const splitLegacyLog = (log: string) => {
-  const logArr = log.split(/^----lx log----\n|\n----lx log----\n|\n----lx log----$/)
-  logArr.reverse()
-  return logArr.join('\n\n').replace(/^\n+|\n+$/, '')
-}
-
-/** 「查看运行时日志」弹窗最多渲染多少字符：日志最大可达 1.5MB，全量渲染会让界面明显卡顿 */
-const maxRuntimeLogViewChars = 200000
-
+/**
+ * 日志设置
+ *
+ * 只保留三个按钮，各自职责互不重叠：
+ * - 「查看日志」：本地歌曲导入失败的记录（`import.log`），只出导入相关问题；
+ * - 「分享日志」：程序运行日志（`runtime.log` + 原生日志 + 事件流水账 + 即时状态），导出成
+ *   文件分享出去，用于反馈 bug；
+ * - 「清空日志文件」：清空上面两类日志的全部文件与备份。
+ *
+ * 曾经的「查看运行时日志」与「复制诊断信息」都已删除：前者只是把「分享日志」里已经包含的
+ * runtime.log 尾部渲染到屏幕上，后者是把同一份诊断内容塞进剪贴板（还要截断），
+ * 三者实质是同一份数据，保留一个「分享日志」即可覆盖排查需求。
+ */
 export default memo(() => {
   const t = useI18n()
   const alertRef = useRef<ConfirmAlertType>(null)
   const [logText, setLogText] = useState('')
-  const [logPath, setLogPath] = useState('')
+  const [importPath, setImportPath] = useState('')
   const [runtimePath, setRuntimePath] = useState('')
-  const [isFetchingRuntimeLog, setIsFetchingRuntimeLog] = useState(false)
-  // 当前弹窗里展示的是哪份日志：false=error.log，true=runtime.log。
-  // 「清空」按钮据此决定删哪一份，避免"看着 runtime.log、却把 error.log 删了"。
-  const [isShowingRuntimeLog, setIsShowingRuntimeLog] = useState(false)
   const isUnmountedRef = useRef(true)
   const [isEnableSyncErrorLog, setIsEnableSyncErrorLog] = useState(global.lx.isEnableSyncLog)
 
   // 刷新展示用的磁盘路径（可能返回 ''，表示当前平台目录还不可用）
   const refreshPaths = () => {
-    setLogPath(getLogPath())
+    setImportPath(importLogPath())
     setRuntimePath(runtimeLogPath())
   }
 
-  const getErrorLog = () => {
+  const loadImportLog = async() => {
+    const text = await readImportLog()
+    if (isUnmountedRef.current) return
+    setLogText(text.replace(/^\n+|\n+$/g, ''))
+  }
+
+  const openImportLogModal = () => {
     refreshPaths()
-    void getLogs().then(log => {
+    void loadImportLog().then(() => {
       if (isUnmountedRef.current) return
-      setLogText(splitLegacyLog(log))
-    })
-  }
-
-  const openLogModal = () => {
-    // 标记当前弹窗展示的是 error.log，保证弹窗里的「清空」清的就是这份日志
-    setIsShowingRuntimeLog(false)
-    getErrorLog()
-    alertRef.current?.setVisible(true)
-  }
-
-  const handleCleanLog = () => {
-    void clearLogs().then(() => {
-      if (isUnmountedRef.current) return
-      toast(t('setting_other_log_tip_clean_success'))
-      getErrorLog()
-    })
-  }
-
-  // 弹窗里的「清空」：清掉的一定是当前正在展示的那份日志。
-  // 展示 error.log 时清 error.log；展示 runtime.log 时清 runtime.log（含备份）。
-  const handleCleanShowingLog = () => {
-    if (!isShowingRuntimeLog) {
-      handleCleanLog()
-      return
-    }
-    void confirmDialog({
-      message: t('setting_other_log_clean_file_confirm'),
-      confirmButtonText: t('setting_other_log_btn_clean'),
-    }).then(confirm => {
-      if (!confirm) return
-      void clearLogFiles().then(() => {
-        if (isUnmountedRef.current) return
-        toast(t('setting_other_log_tip_clean_success'))
-        setLogText('')
-      })
-    })
-  }
-
-  // 查看运行时日志。先 flush 保证包含刚刚产生的日志。
-  // 只读尾部：保留期提高后全文可达 8MB，整份读进内存会明显拖慢界面；
-  // 需要完整内容时用「分享日志」（导出为文件，不受大小限制）。
-  const handleShowRuntimeLog = () => {
-    if (isFetchingRuntimeLog) return
-    setIsFetchingRuntimeLog(true)
-    void flushLogs().then(async() => readLogFileTail(maxRuntimeLogViewChars)).then(text => {
-      if (isUnmountedRef.current) return
-      setIsShowingRuntimeLog(true)
-      refreshPaths()
-      setLogText(text ? tailClip(text.replace(/^\n+|\n+$/g, ''), maxRuntimeLogViewChars) : '')
       alertRef.current?.setVisible(true)
     }).catch(() => {
       if (isUnmountedRef.current) return
-      // 读日志失败时不能让用户"点了没反应"，给出明确提示
       toast(t('setting_other_log_tip_read_failed'))
-    }).finally(() => {
-      if (isUnmountedRef.current) return
-      setIsFetchingRuntimeLog(false)
     })
   }
 
-  // 诊断信息 = 即时状态 + 内存缓冲 + **落盘日志（跨多次启动）** + 原生侧日志。
-  //
-  // 注意这里不再使用旧的 getDiagnostics()：旧实现只导出"当前进程内存缓冲"，
-  // 而用户遇到问题时习惯先重启应用，于是故障那一次进程的记录完全丢失，
-  // 导出的日志里只剩重启后的几行启动日志（这正是之前三份日志无法排查的原因）。
-  //
-  // 同时必须限制导出体积：剪贴板同样有大小上限，超大文本还会拖慢系统。
-  // 完整日志请点「分享日志」（文件方式，不受大小限制）。
-  const handleCopyDiagnostics = () => {
-    void flushLogs()
-      .then(async() => buildFullDiagnostics(clipboardBudget))
-      .then((text) => {
+  // 弹窗里的「清空」：只清导入日志（运行日志走下面的「清空日志文件」）
+  const handleCleanImportLog = () => {
+    void confirmDialog({
+      message: t('setting_other_log_clean_import_confirm'),
+      confirmButtonText: t('setting_other_log_btn_clean'),
+    }).then(confirm => {
+      if (!confirm) return
+      void clearImportLogFile().then(async() => {
         if (isUnmountedRef.current) return
-        const clipped = clipText(text, maxClipboardChars)
-        try {
-          clipboardWriteText(clipped)
-        } catch (err) {
-          toast(t('setting_other_log_tip_read_failed'))
-          return
-        }
-        toast(clipped.length < text.length ? t('setting_other_log_tip_truncated') : t('copy_name_tip'))
+        toast(t('setting_other_log_tip_clean_success'))
+        await loadImportLog()
       })
-      .catch(() => {
-        if (isUnmountedRef.current) return
-        toast(t('setting_other_log_tip_read_failed'))
-      })
+    })
   }
 
   // 「分享日志」：改为**文件分享**，这是修复"点分享日志直接把应用打死"的关键。
-  // 原实现把整份日志（主文件 + 2 个轮转备份，最大约 1.5MB）塞进 Intent.EXTRA_TEXT，
-  // 而 Binder 事务有大小上限：日志变大后 startActivity 抛出的异常无人接管，
-  // 被 react-native-exception-handler 的全局处理器接管界面 —— 用户看到
-  // "Critical Error Occured !"、界面被 finish，只能杀进程重开。
+  // 原实现把整份日志塞进 Intent.EXTRA_TEXT，而 Binder 事务有大小上限：
+  // 日志变大后 startActivity 抛出的异常无人接管，被全局异常处理器接管界面 ——
+  // 用户看到 "Critical Error Occured !"、界面被 finish，只能杀进程重开。
   // 文件走 FileProvider（content://），不经过 Binder，因此没有大小限制。
   const handleShareLog = () => {
-    void flushLogs()
-      .then(async() => writeFullDiagnosticsToFile())
+    void writeFullDiagnosticsToFile()
       .then(async({ path }) => {
         if (isUnmountedRef.current) return
         try {
@@ -175,18 +109,19 @@ export default memo(() => {
       })
   }
 
-  // 破坏性操作：删除运行时日志文件，先二次确认（用户可能想保留证据）
+  // 破坏性操作：删除日志文件，先二次确认（用户可能想保留证据）
   const handleCleanLogFiles = () => {
     void confirmDialog({
       message: t('setting_other_log_clean_file_confirm'),
       confirmButtonText: t('setting_other_log_btn_clean'),
     }).then(confirm => {
       if (!confirm) return
-      void clearLogFiles().then(() => {
+      void Promise.all([clearLogFiles(), clearImportLogFile()]).then(() => {
         if (isUnmountedRef.current) return
         toast(t('setting_other_log_tip_clean_success'))
-        // 运行时日志已被清空，弹窗里若正展示它也要一并复位
-        if (isShowingRuntimeLog) setLogText('')
+        // 弹窗里展示的导入日志也被清空了，一并复位
+        setLogText('')
+        refreshPaths()
       })
     })
   }
@@ -195,7 +130,6 @@ export default memo(() => {
     setIsEnableSyncErrorLog(enable)
     global.lx.isEnableSyncLog = enable
   }
-
 
   useEffect(() => {
     isUnmountedRef.current = false
@@ -212,16 +146,12 @@ export default memo(() => {
           <CheckBoxItem check={isEnableSyncErrorLog} label={t('setting_other_log_sync_log')} onChange={handleSetEnableSyncErrorLog} />
         </View>
         <View style={styles.pathText}>
-          <Text size={12}>{t('setting_other_log_path')}{logPath || t('setting_other_log_path_unavailable')}</Text>
+          <Text size={12}>{t('setting_other_log_import_path')}{importPath || t('setting_other_log_path_unavailable')}</Text>
           <Text size={12} selectable>{t('setting_other_log_runtime_path')}{runtimePath || t('setting_other_log_path_unavailable')}</Text>
         </View>
         <View style={styles.btn}>
-          <Button onPress={openLogModal}>{t('setting_other_log_btn_show')}</Button>
-          <Button disabled={isFetchingRuntimeLog} onPress={handleShowRuntimeLog}>{t('setting_other_log_btn_show_runtime')}</Button>
-        </View>
-        <View style={styles.btn}>
+          <Button onPress={openImportLogModal}>{t('setting_other_log_btn_show')}</Button>
           <Button onPress={handleShareLog}>{t('setting_other_log_btn_share')}</Button>
-          <Button onPress={handleCopyDiagnostics}>{t('setting_other_log_btn_copy_diagnostics')}</Button>
           <Button onPress={handleCleanLogFiles}>{t('setting_other_log_btn_clean_file')}</Button>
         </View>
       </SubTitle>
@@ -229,7 +159,7 @@ export default memo(() => {
         ref={alertRef}
         cancelText={t('setting_other_log_btn_hide')}
         confirmText={t('setting_other_log_btn_clean')}
-        onConfirm={handleCleanShowingLog}
+        onConfirm={handleCleanImportLog}
         showConfirm={!!logText}
         reverseBtn={true}
         >
@@ -237,7 +167,7 @@ export default memo(() => {
           {
             logText
               ? <Text selectable size={13}>{ logText }</Text>
-              : <Text size={13}>{t('setting_other_log_tip_null')}</Text>
+              : <Text size={13}>{t('setting_other_log_import_empty')}</Text>
           }
         </View>
       </ConfirmAlert>

@@ -17,7 +17,6 @@ const listPrevSelectIdKey = storageDataPrefix.listPrevSelectId
 const syncAuthKeyPrefix = storageDataPrefix.syncAuthKey
 const syncHostPrefix = storageDataPrefix.syncHost
 const syncHostHistoryPrefix = storageDataPrefix.syncHostHistory
-const musicFileSyncBaselineKey = storageDataPrefix.musicFileSyncBaseline
 const listPrefix = storageDataPrefix.list
 const dislikeListPrefix = storageDataPrefix.dislikeList
 const openStoragePathPrefix = storageDataPrefix.openStoragePath
@@ -321,19 +320,5 @@ export const addSyncHostHistory = async(host: string) => {
 export const removeSyncHostHistory = async(index: number) => {
   syncHostHistory.splice(index, 1)
   await saveData(syncHostHistoryPrefix, syncHostHistory)
-}
-
-let musicFileSyncBaseline: string[] | undefined
-/** 本地音乐文件同步：上次同步结束时两端都存在的文件相对路径 */
-export const getMusicFileSyncBaseline = async(): Promise<string[]> => {
-  if (musicFileSyncBaseline === undefined) {
-    // eslint-disable-next-line require-atomic-updates
-    musicFileSyncBaseline = await getData<string[]>(musicFileSyncBaselineKey) ?? []
-  }
-  return musicFileSyncBaseline
-}
-export const saveMusicFileSyncBaseline = async(paths: string[]) => {
-  musicFileSyncBaseline = paths
-  await saveData(musicFileSyncBaselineKey, paths)
 }
 

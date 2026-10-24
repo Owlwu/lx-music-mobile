@@ -48,7 +48,6 @@ export const storageDataPrefix = {
   syncAuthKey: '@sync_auth_key',
   syncHost: '@sync_host',
   syncHostHistory: '@sync_host_history',
-  musicFileSyncBaseline: '@music_file_sync_baseline',
 
   openStoragePath: '@open_storage_path',
   selectedManagedFolder: '@selected_managed_folder',

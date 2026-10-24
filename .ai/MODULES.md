@@ -26,7 +26,6 @@
 | `core/lyric.ts` | 歌词解析/行状态 |
 | `core/dislikeList.ts` | 不喜欢规则（同步特性保留，入口在设置内） |
 | `core/sync.ts` | 同步客户端编排（连接/断开/状态） |
-| `core/musicFileSync.ts` | 本地音乐文件同步入口（转 `plugins/sync/client/modules/musicFile`） |
 | `core/desktopLyric.ts` | 桌面歌词（悬浮窗）控制 |
 | `core/common.ts` | 通用设置更新、`componentIds` 等 |
 | `core/theme.ts` | 主题切换 |
@@ -44,7 +43,6 @@ data → common state → sync → deeplink。
 | `list` | `state/action/hook` | 用户列表与列表歌曲（内存缓存） |
 | `setting` | `state/action/hook` | `setting` 响应式副本（`useSettingValue`） |
 | `sync` | `state/action/hook` | 同步状态、设备名、认证码 |
-| `musicFileSync` | `state/action/hook` | 音乐文件同步配置/进度 |
 | `dislikeList` | `state/action/hook/event/index` | 不喜欢列表 |
 | `theme` | `state/action/hook` | 当前主题 + ThemeContext |
 | `Provider` | `Provider.tsx`、`ThemeProvider.tsx` | 仅主题 context；`registerScreens` 用它包裹每个屏幕 |
@@ -76,7 +74,8 @@ data → common state → sync → deeplink。
 | `storage` | AsyncStorage 封装（**注意：实现为 `src/plugins/storage.ts` 而非目录**） |
 
 `sync/client/modules/musicFile/`：`diff.ts`（与桌面端逐字节镜像）、`localFs.ts`（扫描/分块读写/签名）、
-`service.ts`（驱动）、`handler.ts`（对端 RPC）、`logger.ts`。
+`service.ts`（**只实现对端 RPC**：`getRoot`/`getIndex`/`readChunk`/`writeChunk`/`removeFile`）、
+`handler.ts`（对端 RPC 注册）、`logger.ts`。同步一律由 PC 端发起，手机端没有 compare/apply 与同步基线。
 
 ## 6. 导航 —— `src/navigation/`
 
@@ -123,7 +122,7 @@ data → common state → sync → deeplink。
 | `listManage.ts` | 列表内存缓存与操作（overwrite/add/remove/move/position…） |
 | `dislikeManage.ts` | 不喜欢规则内存缓存 |
 | `lrcTools.ts` | LRC 解析/格式化 |
-| `log.ts` / `runtimeLog.ts` / `bootLog.ts` / `diagnostics.ts` / `stallWatchdog.ts` / `playbackHeartbeat.ts` / `errorHandle.ts` | 诊断日志体系（诊断包、异常捕获、卡顿看门狗、播放心跳） |
+| `log.ts` / `runtimeLog.ts` / `importLog.ts` / `bootLog.ts` / `diagnostics.ts` / `stallWatchdog.ts` / `playbackHeartbeat.ts` / `errorHandle.ts` | 日志体系：`runtimeLog.ts` 落盘运行日志 + 内存环形缓冲（`log.ts` 是统一入口）；`importLog.ts` 只记导入本地歌曲的失败；`diagnostics.ts` 生成「分享日志」导出内容 |
 | `tools.ts` | 通用工具：`toast`、`formatMusicName`、`openUrl`、`exitApp`、`isAndroid` 等 |
 | `nativeModules/` | `cache`、`crypto`（+ `cryptoTest`）、`diagnostics`、`lyricDesktop`、`utils` 的 JS 桥 |
 | `hooks/` | `useHorizontalMode`、`useWindowSize`、`usePlayTime`、`useAnimateNumber`、`useLayout` 等 |
