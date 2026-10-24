@@ -43,7 +43,6 @@ export default memo(() => {
   const [isShowingRuntimeLog, setIsShowingRuntimeLog] = useState(false)
   const isUnmountedRef = useRef(true)
   const [isEnableSyncErrorLog, setIsEnableSyncErrorLog] = useState(global.lx.isEnableSyncLog)
-  const [isEnableUserApiLog, setIsEnableUserApiLog] = useState(global.lx.isEnableUserApiLog)
 
   // 刷新展示用的磁盘路径（可能返回 ''，表示当前平台目录还不可用）
   const refreshPaths = () => {
@@ -197,11 +196,6 @@ export default memo(() => {
     global.lx.isEnableSyncLog = enable
   }
 
-  const handleSetEnableUserApiLog = (enable: boolean) => {
-    setIsEnableUserApiLog(enable)
-    global.lx.isEnableUserApiLog = enable
-  }
-
 
   useEffect(() => {
     isUnmountedRef.current = false
@@ -216,7 +210,6 @@ export default memo(() => {
       <SubTitle title={t('setting_other_log')}>
         <View style={styles.checkBox}>
           <CheckBoxItem check={isEnableSyncErrorLog} label={t('setting_other_log_sync_log')} onChange={handleSetEnableSyncErrorLog} />
-          <CheckBoxItem check={isEnableUserApiLog} label={t('setting_other_log_user_api_log')} onChange={handleSetEnableUserApiLog} />
         </View>
         <View style={styles.pathText}>
           <Text size={12}>{t('setting_other_log_path')}{logPath || t('setting_other_log_path_unavailable')}</Text>

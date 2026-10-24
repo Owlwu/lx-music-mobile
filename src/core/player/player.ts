@@ -65,20 +65,19 @@ const { addDelayNextTimeout, clearDelayNextTimeout } = createDelayNextTimeout(50
 const { addDelayNextTimeout: addLoadTimeout, clearDelayNextTimeout: clearLoadTimeout } = createDelayNextTimeout(100000)
 info('PLAYER', 'player module loaded', { delayNextTimeout: 5000, loadTimeout: 100000 })
 
-const createGettingUrlId = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => {
-  const tInfo = 'progress' in musicInfo ? musicInfo.metadata.musicInfo.meta.toggleMusicInfo : musicInfo.meta.toggleMusicInfo
-  return `${musicInfo.id}_${tInfo?.id ?? ''}`
+const createGettingUrlId = (musicInfo: LX.Music.MusicInfo) => {
+  return musicInfo.id
 }
 /**
  * 检查音乐信息是否已更改
  */
-const diffCurrentMusicInfo = (curMusicInfo: LX.Music.MusicInfo | LX.Download.ListItem): boolean => {
+const diffCurrentMusicInfo = (curMusicInfo: LX.Music.MusicInfo): boolean => {
   // return curMusicInfo !== playerState.playMusicInfo.musicInfo || playerState.isPlay
   return createGettingUrlId(curMusicInfo) != global.lx.gettingUrlId || curMusicInfo.id != playerState.playMusicInfo.musicInfo?.id || playerState.isPlay
 }
 
 let cancelDelayRetry: (() => void) | null = null
-const delayRetry = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false): Promise<string | null> => {
+const delayRetry = async(musicInfo: LX.Music.MusicInfo, isRefresh = false): Promise<string | null> => {
   // if (cancelDelayRetry) cancelDelayRetry()
   return new Promise<string | null>((resolve, reject) => {
     const time = getRandom(2, 6)
@@ -106,37 +105,22 @@ const delayRetry = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, i
     }
   })
 }
-const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false, isRetryed = false): Promise<string | null> => {
+const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo, isRefresh = false, isRetryed = false): Promise<string | null> => {
   // this.musicInfo.url = await getMusicPlayUrl(targetSong, type)
   setStatusText(global.i18n.t('player__getting_url'))
   addLoadTimeout()
-
-  // const type = getPlayType(settingState.setting['player.isPlayHighQuality'], musicInfo)
-  let toggleMusicInfo = ('progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo).meta.toggleMusicInfo
 
   info('MUSIC_URL', 'getMusicPlayUrl start', {
     id: musicInfo.id,
     isRefresh,
     isRetryed,
-    hasToggleMusicInfo: !!toggleMusicInfo,
     gettingUrlId: global.lx.gettingUrlId || '',
   })
   markEvent('musicUrl.getMusicPlayUrl.start', { id: musicInfo.id, isRefresh, isRetryed })
 
-  return (toggleMusicInfo ? getMusicUrl({
-    musicInfo: toggleMusicInfo,
+  return getMusicUrl({
+    musicInfo,
     isRefresh,
-    allowToggleSource: false,
-  }) : Promise.reject(new Error('not found'))).catch(async() => {
-    info('MUSIC_URL', 'toggleMusicInfo path failed, fallback to normal', { id: musicInfo.id })
-    return getMusicUrl({
-      musicInfo,
-      isRefresh,
-      onToggleSource(mInfo) {
-        if (diffCurrentMusicInfo(musicInfo)) return
-        setStatusText(global.i18n.t('toggle_source_try'))
-      },
-    })
   }).then(url => {
     if (global.lx.isPlayedStop || diffCurrentMusicInfo(musicInfo)) {
       info('MUSIC_URL', 'url discarded by guard', {
@@ -184,7 +168,7 @@ const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListIt
   })
 }
 
-export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh?: boolean) => {
+export const setMusicUrl = (musicInfo: LX.Music.MusicInfo, isRefresh?: boolean) => {
   // addLoadTimeout()
   if (!diffCurrentMusicInfo(musicInfo)) {
     info('MUSIC_URL', 'setMusicUrl skipped by diff guard', { id: musicInfo.id, gettingUrlId: global.lx.gettingUrlId || '' })
@@ -862,9 +846,7 @@ export const togglePlay = () => {
 export const collectMusic = () => {
   if (!playerState.playMusicInfo.musicInfo) return
   void addListMusics(LIST_IDS.LOVE, [
-    'progress' in playerState.playMusicInfo.musicInfo
-      ? playerState.playMusicInfo.musicInfo.metadata.musicInfo
-      : playerState.playMusicInfo.musicInfo,
+    playerState.playMusicInfo.musicInfo,
   ], settingState.setting['list.addMusicLocationType'])
 }
 
@@ -874,9 +856,7 @@ export const collectMusic = () => {
 export const uncollectMusic = () => {
   if (!playerState.playMusicInfo.musicInfo) return
   void removeListMusics(LIST_IDS.LOVE, [
-    'progress' in playerState.playMusicInfo.musicInfo
-      ? playerState.playMusicInfo.musicInfo.metadata.musicInfo.id
-      : playerState.playMusicInfo.musicInfo.id,
+    playerState.playMusicInfo.musicInfo.id,
   ])
 }
 
@@ -885,7 +865,7 @@ export const uncollectMusic = () => {
  */
 export const dislikeMusic = async() => {
   if (!playerState.playMusicInfo.musicInfo) return
-  const minfo = 'progress' in playerState.playMusicInfo.musicInfo ? playerState.playMusicInfo.musicInfo.metadata.musicInfo : playerState.playMusicInfo.musicInfo
+  const minfo = playerState.playMusicInfo.musicInfo
   await addDislikeInfo([{ name: minfo.name, singer: minfo.singer }])
   await playNext(true)
 }

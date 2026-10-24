@@ -4,11 +4,9 @@ import Clipboard from '@react-native-clipboard/clipboard'
 import { storageDataPrefix } from '@/config/constant'
 import { gzipFile, readFile, temporaryDirectoryPath, unGzipFile, unlink, writeFile } from '@/utils/fs'
 import { getSystemLocales, isIgnoringBatteryOptimization, isNotificationsEnabled, requestNotificationPermission, requestIgnoreBatteryOptimization, shareText } from '@/utils/nativeModules/utils'
-import musicSdk from '@/utils/musicSdk'
 import { getData, removeData, saveData } from '@/plugins/storage'
 import BackgroundTimer from 'react-native-background-timer'
 import { scaleSizeH, scaleSizeW, setSpText } from './pixelRatio'
-import { toOldMusicInfo } from './index'
 import { stringMd5 } from 'react-native-quick-md5'
 import { windowSizeTools } from '@/utils/windowSizeTools'
 
@@ -334,17 +332,16 @@ export const formatMusicName = (format: string, name: string, singer: string) =>
   return format.replace('歌手', singer).replace('歌名', name)
 }
 
-export const shareMusic = (shareType: LX.ShareType, downloadFileName: LX.AppSetting['download.fileName'], musicInfo: LX.Music.MusicInfo) => {
+export const shareMusic = (shareType: LX.ShareType, musicInfo: LX.Music.MusicInfo) => {
   const name = musicInfo.name
   const singer = musicInfo.singer
-  const detailUrl = musicInfo.source == 'local' ? '' : musicSdk[musicInfo.source]?.getMusicDetailPageUrl(toOldMusicInfo(musicInfo)) ?? ''
-  const musicTitle = formatMusicName(downloadFileName, name, singer)
+  const musicTitle = formatMusicName('歌名 - 歌手', name, singer)
   switch (shareType) {
     case 'system':
-      void shareText(global.i18n.t('share_card_title_music', { name }), global.i18n.t('share_title_music'), `${musicTitle.replace(/\s/g, '')}${detailUrl ? '\n' + detailUrl : ''}`)
+      void shareText(global.i18n.t('share_card_title_music', { name }), global.i18n.t('share_title_music'), musicTitle.replace(/\s/g, ''))
       break
     case 'clipboard':
-      clipboardWriteText(`${musicTitle}${detailUrl ? '\n' + detailUrl : ''}`)
+      clipboardWriteText(musicTitle)
       toast(global.i18n.t('copy_name_tip'))
       break
   }

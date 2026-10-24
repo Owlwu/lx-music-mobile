@@ -18,7 +18,7 @@ export const filterMusicList = ({ playedList, listId, list, playerMusicInfo, dis
   /**
    * 播放列表
    */
-  list: Array<LX.Music.MusicInfo | LX.Download.ListItem>
+  list: LX.Music.MusicInfo[]
   /**
    * 下载目录
    */
@@ -26,7 +26,7 @@ export const filterMusicList = ({ playedList, listId, list, playerMusicInfo, dis
   /**
    * 播放器内当前歌曲（`playInfo.playerPlayIndex`指向的歌曲）
    */
-  playerMusicInfo?: LX.Music.MusicInfo | LX.Download.ListItem
+  playerMusicInfo?: LX.Music.MusicInfo
 
   /**
    * 不喜欢的歌曲名字列表
@@ -37,7 +37,7 @@ export const filterMusicList = ({ playedList, listId, list, playerMusicInfo, dis
 }) => {
   let playerIndex = -1
 
-  let canPlayList: Array<LX.Music.MusicInfo | LX.Download.ListItem> = []
+  let canPlayList: LX.Music.MusicInfo[] = []
   const filteredPlayedList = playedList.filter(pmInfo => pmInfo.listId == listId && !pmInfo.isTempPlay).map(({ musicInfo }) => musicInfo)
   const hasDislike = (info: LX.Music.MusicInfo) => {
     const name = info.name?.replaceAll(SPLIT_CHAR.DISLIKE_NAME, SPLIT_CHAR.DISLIKE_NAME_ALIAS).toLocaleLowerCase().trim() ?? ''
@@ -48,11 +48,9 @@ export const filterMusicList = ({ playedList, listId, list, playerMusicInfo, dis
   }
 
   let isDislike = false
-  const filteredList: Array<LX.Music.MusicInfo | LX.Download.ListItem> = list.filter(s => {
+  const filteredList: LX.Music.MusicInfo[] = list.filter(s => {
     // if (!assertApiSupport(s.source)) return false
-    if ('progress' in s) {
-      if (!s.isComplate) return false
-    } else if (hasDislike(s)) {
+    if (hasDislike(s)) {
       if (s.id != playerMusicInfo?.id) return false
       isDislike = true
     }
@@ -109,8 +107,8 @@ export const filterMusicList = ({ playedList, listId, list, playerMusicInfo, dis
 export const filterList = async({ playedList, listId, list, playerMusicInfo, isNext }: {
   playedList: LX.Player.PlayMusicInfo[] | readonly LX.Player.PlayMusicInfo[]
   listId: string
-  list: Array<LX.Music.MusicInfo | LX.Download.ListItem>
-  playerMusicInfo?: LX.Music.MusicInfo | LX.Download.ListItem
+  list: LX.Music.MusicInfo[]
+  playerMusicInfo?: LX.Music.MusicInfo
   isNext: boolean
 }) => {
   // if (this.list.listName === null) return

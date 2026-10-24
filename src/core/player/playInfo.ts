@@ -3,7 +3,6 @@ import playerState from '@/store/player/state'
 
 import { getListMusicSync } from '@/utils/listManage'
 import { setProgress } from '@/core/player/progress'
-import { LIST_IDS } from '@/config/constant'
 
 
 export const setMusicInfo = (musicInfo: Partial<LX.Player.MusicInfo>) => {
@@ -35,7 +34,7 @@ export const updatePlayIndex = () => {
 }
 
 
-export const getPlayIndex = (listId: string | null, musicInfo: LX.Download.ListItem | LX.Music.MusicInfo | null, isTempPlay: boolean): {
+export const getPlayIndex = (listId: string | null, musicInfo: LX.Music.MusicInfo | null, isTempPlay: boolean): {
   playIndex: number
   playerPlayIndex: number
 } => {
@@ -85,20 +84,9 @@ export const resetPlayerMusicInfo = () => {
   })
 }
 
-const setPlayerMusicInfo = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem | null) => {
+const setPlayerMusicInfo = (musicInfo: LX.Music.MusicInfo | null) => {
   if (musicInfo) {
-    setMusicInfo('progress' in musicInfo ? {
-      id: musicInfo.id,
-      pic: musicInfo.metadata.musicInfo.meta.picUrl,
-      name: musicInfo.metadata.musicInfo.name,
-      singer: musicInfo.metadata.musicInfo.singer,
-      album: musicInfo.metadata.musicInfo.meta.albumName ?? '',
-      lrc: null,
-      tlrc: null,
-      rlrc: null,
-      lxlrc: null,
-      rawlrc: null,
-    } : {
+    setMusicInfo({
       id: musicInfo.id,
       pic: musicInfo.meta.picUrl,
       name: musicInfo.name,
@@ -119,7 +107,7 @@ const setPlayerMusicInfo = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
  * @param musicInfo 歌曲信息
  * @param isTempPlay 是否临时播放
  */
-export const setPlayMusicInfo = (listId: string | null, musicInfo: LX.Download.ListItem | LX.Music.MusicInfo | null, isTempPlay: boolean = false) => {
+export const setPlayMusicInfo = (listId: string | null, musicInfo: LX.Music.MusicInfo | null, isTempPlay: boolean = false) => {
   playerActions.setPlayMusicInfo(listId, musicInfo, isTempPlay)
   setPlayerMusicInfo(musicInfo)
 
@@ -136,7 +124,6 @@ export const setPlayMusicInfo = (listId: string | null, musicInfo: LX.Download.L
   }
 }
 
-export const getList = (listId: string | null): LX.Music.MusicInfo[] | LX.Download.ListItem[] => {
-  // return listId == LIST_ID_DOWNLOAD ? downloadList : getListMusicSync(listId)
-  return listId == LIST_IDS.DOWNLOAD ? [] : getListMusicSync(listId)
+export const getList = (listId: string | null): LX.Music.MusicInfo[] => {
+  return getListMusicSync(listId)
 }

@@ -2,7 +2,6 @@ import Event from './Event'
 import type { InitState as CommonState } from '@/store/common/state'
 import type { InitState as ListState } from '@/store/list/state'
 import type { InitState as PlayerState } from '@/store/player/state'
-import type { InitState as VersionState } from '@/store/version/state'
 import { type I18n } from '@/lang'
 import type { InitState as MusicFileSyncState } from '@/store/musicFileSync/state'
 
@@ -31,10 +30,6 @@ export class StateEvent extends Event {
 
   statusbarHeightUpdated(size: number) {
     this.emit('statusbarHeightUpdated', size)
-  }
-
-  apiSourceUpdated(source: LX.AppSetting['common.apiSource']) {
-    this.emit('apiSourceUpdated', source)
   }
 
   themeUpdated(theme: LX.ActiveTheme) {
@@ -101,18 +96,6 @@ export class StateEvent extends Event {
 
   musicFileSyncUpdated(info: MusicFileSyncState) {
     this.emit('musicFileSyncUpdated', info)
-  }
-
-  versionInfoUpdated(info: VersionState['versionInfo']) {
-    this.emit('versionInfoUpdated', info)
-  }
-
-  versionInfoIgnoreVersionUpdated(version: VersionState['ignoreVersion']) {
-    this.emit('versionInfoIgnoreVersionUpdated', version)
-  }
-
-  versionDownloadProgressUpdated(progress: VersionState['progress']) {
-    this.emit('versionDownloadProgressUpdated', progress)
   }
 
   componentIdsUpdated(ids: CommonState['componentIds']) {

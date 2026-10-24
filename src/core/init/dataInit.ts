@@ -1,6 +1,5 @@
 // import { getPlayInfo } from '@/utils/data'
 // import { log } from '@/utils/log'
-import { init as musicSdkInit } from '@/utils/musicSdk'
 import { getUserLists, setUserList } from '@/core/list'
 import { setNavActiveId } from '../common'
 import { getViewPrevState } from '@/utils/data'
@@ -31,7 +30,6 @@ export default async(appSetting: LX.AppSetting) => {
   const dataInitTime = Date.now()
   markEvent('boot:dataInitStart')
   info('BOOT', 'dataInit: start')
-  void musicSdkInit() // 初始化音乐sdk
   bootLog('User list init...')
   markEvent('boot:dataInit:getUserLists')
   // 这一步依赖存储读取，是"应用打开后空白"最常见的卡点之一：

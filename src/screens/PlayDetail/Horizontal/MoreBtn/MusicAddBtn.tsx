@@ -11,7 +11,7 @@ export default () => {
     const musicInfo = playerState.playMusicInfo.musicInfo
     if (!musicInfo) return
     musicAddModalRef.current?.show({
-      musicInfo: 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo,
+      musicInfo,
       isMove: false,
       listId: playerState.playMusicInfo.listId!,
     })

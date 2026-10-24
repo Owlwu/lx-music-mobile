@@ -1,8 +1,6 @@
 import { setNavActiveId } from '@/core/common'
 import Event from './Event'
 import commonState from '@/store/common/state'
-import { type Source as SonglistSource } from '@/store/songlist/state'
-import { type SearchType } from '@/store/search/state'
 
 
 // {
@@ -162,14 +160,6 @@ export class AppEvent extends Event {
     this.emit('changeMenuVisible', visible)
   }
 
-  /**
-   * 搜索类型改变事件
-   * @param type
-   */
-  searchTypeChanged(type: SearchType) {
-    this.emit('searchTypeChanged', type)
-  }
-
   jumpListPosition() {
     if (commonState.navActiveId == 'nav_love') {
       this.emit('jumpListPosition')
@@ -184,14 +174,6 @@ export class AppEvent extends Event {
 
   changeLoveListVisible(visible: boolean) {
     this.emit('changeLoveListVisible', visible)
-  }
-
-  showSonglistTagList(source: SonglistSource, activeId: string) {
-    this.emit('showSonglistTagList', source, activeId)
-  }
-
-  hideSonglistTagList() {
-    this.emit('hideSonglistTagList')
   }
 
   songlistTagInfoChange(name: string, id: string) {

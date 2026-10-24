@@ -64,25 +64,6 @@ export const usePageVisible = (visibleNames: COMPONENT_IDS[], onChange: (visible
 }
 
 
-export const useAssertApiSupport = (source: LX.Source) => {
-  const [value, update] = useState(global.lx.qualityList[source] != null || source == 'local')
-
-  useEffect(() => {
-    const handleUpdate = () => {
-      update(global.lx.qualityList[source] != null || source == 'local')
-    }
-
-    global.state_event.on('apiSourceUpdated', handleUpdate)
-    return () => {
-      global.state_event.off('apiSourceUpdated', handleUpdate)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return value
-}
-
-
 export const useNavActiveId = () => {
   const [value, update] = useState(state.navActiveId)
 

@@ -14,7 +14,7 @@ export const clearDislikeInfo = async() => {
 }
 
 
-export const hasDislike = (info: LX.Music.MusicInfo | LX.Download.ListItem | null) => {
+export const hasDislike = (info: LX.Music.MusicInfo | null) => {
   if (!info) return false
   return action.hasDislike(info)
 }

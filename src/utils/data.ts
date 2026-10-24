@@ -27,7 +27,6 @@ const syncHostHistoryPrefix = storageDataPrefix.syncHostHistory
 const musicFileSyncBaselineKey = storageDataPrefix.musicFileSyncBaseline
 const listPrefix = storageDataPrefix.list
 const dislikeListPrefix = storageDataPrefix.dislikeList
-const userApiPrefix = storageDataPrefix.userApi
 const openStoragePathPrefix = storageDataPrefix.openStoragePath
 const selectedManagedFolderPrefix = storageDataPrefix.selectedManagedFolder
 
@@ -525,91 +524,3 @@ export const saveMusicFileSyncBaseline = async(paths: string[]) => {
   await saveData(musicFileSyncBaselineKey, paths)
 }
 
-let userApis: LX.UserApi.UserApiInfo[] = []
-export const getUserApiList = async(): Promise<LX.UserApi.UserApiInfo[]> => {
-  userApis = await getData<LX.UserApi.UserApiInfo[]>(userApiPrefix) ?? []
-
-  // 移除 1.7.1 及之前版本的脚本数据被意外存储到列表中的问题
-  let updated = false
-  for (const info of userApis) {
-    if ((info as LX.UserApi.UserApiInfo & { script?: string }).script != null) {
-      delete (info as LX.UserApi.UserApiInfo & { script?: string }).script
-      updated = true
-    }
-  }
-  if (updated) void saveData(userApiPrefix, userApis)
-
-  return [...userApis]
-}
-export const getUserApiScript = async(id: string): Promise<string> => {
-  const script = await getData<string>(`${userApiPrefix}${id}`) ?? ''
-  return script
-}
-
-const INFO_NAMES = {
-  name: 24,
-  description: 36,
-  author: 56,
-  homepage: 1024,
-  version: 36,
-} as const
-type INFO_NAMES_Type = typeof INFO_NAMES
-const matchInfo = (scriptInfo: string) => {
-  const infoArr = scriptInfo.split(/\r?\n/)
-  const rxp = /^\s?\*\s?@(\w+)\s(.+)$/
-  const infos: Partial<Record<keyof typeof INFO_NAMES, string>> = {}
-  for (const info of infoArr) {
-    const result = rxp.exec(info)
-    if (!result) continue
-    const key = result[1] as keyof typeof INFO_NAMES
-    if (INFO_NAMES[key] == null) continue
-    infos[key] = result[2].trim()
-  }
-
-  for (const [key, len] of Object.entries(INFO_NAMES) as Array<{ [K in keyof INFO_NAMES_Type]: [K, INFO_NAMES_Type[K]] }[keyof INFO_NAMES_Type]>) {
-    infos[key] ||= ''
-    if (infos[key] == null) infos[key] = ''
-    else if (infos[key].length > len) infos[key] = infos[key].substring(0, len) + '...'
-  }
-
-  return infos as Record<keyof typeof INFO_NAMES, string>
-}
-export const addUserApi = async(script: string): Promise<LX.UserApi.UserApiInfo> => {
-  const result = /^\/\*[\S|\s]+?\*\//.exec(script)
-  if (!result) throw new Error(global.i18n.t('user_api_add_failed_tip'))
-
-  let scriptInfo = matchInfo(result[0])
-
-  scriptInfo.name ||= `user_api_${new Date().toLocaleString()}`
-  const apiInfo: LX.UserApi.UserApiInfo = {
-    id: `user_api_${Math.random().toString().substring(2, 5)}_${Date.now()}`,
-    ...scriptInfo,
-    allowShowUpdateAlert: true,
-  }
-  userApis.push(apiInfo)
-  await saveDataMultiple([
-    [userApiPrefix, userApis],
-    [`${userApiPrefix}${apiInfo.id}`, script],
-  ])
-  return apiInfo
-}
-export const removeUserApi = async(ids: string[]) => {
-  if (!userApis) return []
-  const _ids: string[] = []
-  for (let index = userApis.length - 1; index > -1; index--) {
-    if (ids.includes(userApis[index].id)) {
-      _ids.push(`${userApiPrefix}${userApis[index].id}`)
-      userApis.splice(index, 1)
-      ids.splice(index, 1)
-    }
-  }
-  await saveData(userApiPrefix, userApis)
-  if (_ids.length) await removeDataMultiple(_ids)
-  return [...userApis]
-}
-export const setUserApiAllowShowUpdateAlert = async(id: string, enable: boolean) => {
-  const targetApi = userApis?.find(api => api.id == id)
-  if (!targetApi) return
-  targetApi.allowShowUpdateAlert = enable
-  await saveData(userApiPrefix, userApis)
-}

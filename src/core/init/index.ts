@@ -2,16 +2,13 @@ import { initSetting, showPactModal } from '@/core/common'
 import registerPlaybackService from '@/plugins/player/service'
 import initTheme from './theme'
 import initI18n from './i18n'
-import initUserApi from './userApi'
 import initPlayer from './player'
 import dataInit from './dataInit'
 import initSync from './sync'
 import initCommonState from './common'
 import { initDeeplink } from './deeplink'
-import { setApiSource } from '@/core/apiSource'
 import commonActions from '@/store/common/action'
 import settingState from '@/store/setting/state'
-import { checkUpdate } from '@/core/version'
 import { bootLog } from '@/utils/bootLog'
 import { cheatTip } from '@/utils/tools'
 import { info, error as logError, flush } from '@/utils/runtimeLog'
@@ -32,7 +29,6 @@ const handlePushedHomeScreen = async() => {
   if (settingState.setting['common.isAgreePact']) {
     if (isFirstPush) {
       isFirstPush = false
-      void checkUpdate()
       void initDeeplink()
       bootLog('Update check & deeplink inited.')
     }
@@ -74,13 +70,9 @@ export default async() => {
   bootLog('I18n inited.')
   bootStep('i18n')
 
-  await initUserApi(setting)
   bootLog('User Api inited.')
-  bootStep('userApi')
 
-  setApiSource(setting['common.apiSource'])
   bootLog('Api inited.')
-  bootStep('apiSource')
 
   registerPlaybackService()
   bootLog('Playback Service Registered.')

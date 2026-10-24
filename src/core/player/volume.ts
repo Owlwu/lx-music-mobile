@@ -13,7 +13,7 @@ export const MUSIC_VOLUME_MAX = 2
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 export const normalizeMusicInfo = (musicInfo: LX.Player.PlayMusic): LX.Music.MusicInfo => {
-  return 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+  return musicInfo
 }
 
 // 当前播放歌曲的内存缓存，用于全局音量变化 / 拖动滑块时即时重算

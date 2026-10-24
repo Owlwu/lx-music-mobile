@@ -1,6 +1,5 @@
 import { addListMusics, getListMusics, removeListMusics, removeUserList, setFetchingListStatus, updateListMusics } from '@/core/list'
 import { confirmDialog, handleReadFile, handleSaveFile, showImportTip, toast } from '@/utils/tools'
-import syncSourceList from '@/core/syncSourceList'
 import { log } from '@/utils/log'
 import { filterFileName, filterMusicList, formatPlayTime2, toNewMusicInfo } from '@/utils'
 import { handleImportListPart } from '@/screens/Home/Views/Setting/settings/Backup/actions'
@@ -75,20 +74,6 @@ export const handleExport = (listInfo: LX.List.MyListInfo, path: string) => {
   }).catch((err: any) => {
     log.error(err.message)
     toast(global.i18n.t('setting_backup_part_export_list_tip_failed') + ': ' + (err.message as string))
-  })
-}
-
-export const handleSync = (listInfo: LX.List.UserListInfo) => {
-  void confirmDialog({
-    message: global.i18n.t('list_sync_confirm_tip', { name: listInfo.name }),
-    confirmButtonText: global.i18n.t('list_remove_tip_button'),
-  }).then(isSync => {
-    if (!isSync) return
-    void syncSourceList(listInfo).then(() => {
-      toast(global.i18n.t('list_update_success', { name: listInfo.name }))
-    }).catch(() => {
-      toast(global.i18n.t('list_update_error', { name: listInfo.name }))
-    })
   })
 }
 

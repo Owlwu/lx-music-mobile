@@ -49,13 +49,10 @@ declare namespace LX {
       isAutoUpdate: boolean
     }>
 
-    type ListSaveType = 'myList' | 'downloadList'
-    type ListSaveInfo = {
+    type ListSaveType = 'myList'
+    interface ListSaveInfo {
       type: 'myList'
       data: Partial<MyAllList>
-    } | {
-      type: 'downloadList'
-      data: LX.Download.ListItem[]
     }
 
 

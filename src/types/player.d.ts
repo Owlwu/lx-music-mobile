@@ -21,7 +21,7 @@ declare global {
         rawlrcInfo: LX.Music.LyricInfo
       }
 
-      type PlayMusic = LX.Music.MusicInfo | LX.Download.ListItem
+      type PlayMusic = LX.Music.MusicInfo
 
       type PlayMusicInfo = Readonly<{
         /**

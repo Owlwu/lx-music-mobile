@@ -37,7 +37,6 @@ export default (setting: any): Partial<LX.AppSetting> => {
     setting['common.themeId'] = setting.themeId
     setting['common.isAutoTheme'] = setting.isAutoTheme
     setting['common.langId'] = setting.langId
-    setting['common.apiSource'] = setting.apiSource
     setting['common.sourceNameType'] = setting.sourceNameType
     setting['common.shareType'] = setting.shareType
     setting['common.isAgreePact'] = setting.isAgreePact

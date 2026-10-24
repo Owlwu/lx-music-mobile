@@ -79,7 +79,6 @@ export const storageDataPrefix = {
 
   dislikeList: '@dislike_list',
 
-  userApi: '@user_api__',
 } as const
 
 // v0.x.x 版本的 data keys
@@ -101,9 +100,9 @@ export const APP_PROVIDER_NAME = 'cn.toside.music.mobile.provider'
 
 
 export const NAV_MENUS = [
-  { id: 'nav_search', icon: 'search-2' },
-  { id: 'nav_songlist', icon: 'album' },
-  { id: 'nav_top', icon: 'leaderboard' },
+  // 纯本地播放器：只保留我的列表与设置
+
+
   { id: 'nav_love', icon: 'love' },
   // { id: 'download', icon: 'download-2' },
   { id: 'nav_setting', icon: 'setting' },
@@ -112,7 +111,6 @@ export const NAV_MENUS = [
 export type NAV_ID_Type = typeof NAV_MENUS[number]['id']
 
 export const LXM_FILE_EXT_RXP = ['json', 'lxmc', 'bin']
-export const USER_API_SOURCE_FILE_EXT_RXP = ['js']
 
 export const MUSIC_TOGGLE_MODE = {
   listLoop: 'listLoop', // 列表循环
@@ -150,7 +148,7 @@ export const DEFAULT_SETTING = {
   },
 
   viewPrevState: {
-    id: 'nav_search' as NAV_ID_Type,
+    id: 'nav_love' as NAV_ID_Type,
     // query: {},
   },
 }

@@ -16,7 +16,7 @@ export default {
 
     global.state_event.playInfoChanged({ ...state.playInfo })
   },
-  setPlayMusicInfo(listId: string | null, musicInfo: LX.Download.ListItem | LX.Music.MusicInfo | null, isTempPlay: boolean = false) {
+  setPlayMusicInfo(listId: string | null, musicInfo: LX.Music.MusicInfo | null, isTempPlay: boolean = false) {
     state.playMusicInfo = { listId, musicInfo, isTempPlay }
 
     global.state_event.playMusicInfoChanged(state.playMusicInfo)
@@ -81,7 +81,7 @@ export default {
     global.state_event.playPlayedListChanged({ ...state.playedList })
   },
   addTempPlayList(list: LX.Player.TempPlayListItem[]) {
-    const topList: Array<{ listId: string | null, musicInfo: LX.Music.MusicInfo | LX.Download.ListItem }> = []
+    const topList: Array<{ listId: string | null, musicInfo: LX.Music.MusicInfo }> = []
     const bottomList = list.filter(({ isTop, ...musicInfo }) => {
       if (isTop) {
         topList.push(musicInfo)
