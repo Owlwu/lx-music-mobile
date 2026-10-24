@@ -121,11 +121,6 @@ declare global {
       'player.togglePlayMethod': 'listLoop' | 'random' | 'list' | 'singleLoop' | 'none'
 
       /**
-       * 优先播放的音质
-       */
-      'player.playQuality': LX.Quality
-
-      /**
        * 启动软件时是否恢复上次播放进度
        */
       'player.isSavePlayTime': boolean

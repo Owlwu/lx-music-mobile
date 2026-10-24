@@ -55,8 +55,6 @@ global.lx = {
   // 表现为"没有声音、进度不动、切歌无效"，因此必须能算出它的年龄。
   gettingUrlIdSince: 0,
 
-  qualityList: {},
-
   jumpMyListPosition: false,
 
   settingActiveId: 'basic',

@@ -136,7 +136,7 @@ export const listDataOverwrite = ({ defaultList, loveList, userList, tempList }:
 export const userListCreate = ({ name, id, source, sourceListId, position, locationUpdateTime }: {
   name: string
   id: string
-  source?: LX.OnlineSource
+  source?: string
   sourceListId?: string
   position: number
   locationUpdateTime: number | null

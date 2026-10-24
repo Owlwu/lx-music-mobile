@@ -9,7 +9,6 @@ import playerState from '@/store/player/state'
 
 import type { SelectInfo } from './ListMenu'
 import { type Metadata } from '@/components/MetadataEditModal'
-import { clearMusicUrlByMusic } from '@/utils/data'
 import { deleteLocalMusicFiles } from '@/utils/music'
 import { log } from '@/utils/log'
 
@@ -128,17 +127,6 @@ export const searchListMusic = (list: LX.Music.MusicInfo[], text: string) => {
     ...sortedList.map(item => item.data).reverse(),
   ]
 }
-
-export const clearMusicUrl = async(musicInfo: SelectInfo['musicInfo']) => {
-  try {
-    await clearMusicUrlByMusic(musicInfo)
-  } catch (error) {
-    toast(global.i18n.t('list_remove_cache_fail_tip', { msg: (error as Error).message }))
-    return
-  }
-  toast(global.i18n.t('list_remove_cache_success_tip'))
-}
-
 
 export const handleDislikeMusic = async(musicInfo: SelectInfo['musicInfo']) => {
   const confirm = await confirmDialog({

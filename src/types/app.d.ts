@@ -35,8 +35,6 @@ interface GlobalData {
   isEnableSyncLog: boolean
   playerTrackId: string
 
-  qualityList: LX.QualityList
-
   jumpMyListPosition: boolean
 
   settingActiveId: SettingScreenIds

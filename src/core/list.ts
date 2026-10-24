@@ -2,7 +2,6 @@ import { LIST_IDS } from '@/config/constant'
 import listAction from '@/store/list/action'
 import listState from '@/store/list/state'
 import settingState from '@/store/setting/state'
-import { fixNewMusicInfoQuality } from '@/utils'
 import { saveListPrevSelectId } from '@/utils/data'
 
 /**
@@ -117,7 +116,7 @@ export const overwriteList = async(listInfoFull: LX.List.MyDefaultListInfoFull |
       ])
       break
   }
-  await overwriteListMusics(listInfoFull.id, listInfoFull.list.map(m => fixNewMusicInfoQuality(m)))
+  await overwriteListMusics(listInfoFull.id, listInfoFull.list)
 }
 /**
  * 覆盖单个列表
@@ -128,7 +127,7 @@ export const createList = async({ name, id = `userlist_${Date.now()}`, list = []
   name?: string
   id?: string
   list?: LX.Music.MusicInfo[]
-  source?: LX.OnlineSource
+  source?: string
   sourceListId?: string
   position?: number
 }) => {
@@ -166,7 +165,7 @@ export const setUserList = (lists: LX.List.UserListInfo[]) => {
  * @param id
  * @param list
  */
-export const setTempList = async(id: string, list: LX.Music.MusicInfoOnline[]) => {
+export const setTempList = async(id: string, list: LX.Music.MusicInfo[]) => {
   await overwriteListMusics(LIST_IDS.TEMP, list)
   listAction.setTempListMeta({ id })
 }

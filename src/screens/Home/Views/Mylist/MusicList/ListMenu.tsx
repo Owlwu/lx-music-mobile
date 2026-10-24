@@ -21,7 +21,6 @@ export interface ListMenuProps {
   onEditMetadata: (selectInfo: SelectInfo) => void
   onCopyName: (selectInfo: SelectInfo) => void
   onChangePosition: (selectInfo: SelectInfo) => void
-  onRemoveCache: (selectInfo: SelectInfo) => void
   onDislikeMusic: (selectInfo: SelectInfo) => void
   onRemove: (selectInfo: SelectInfo) => void
 }

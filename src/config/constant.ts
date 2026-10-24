@@ -42,8 +42,6 @@ export const storageDataPrefix = {
   listPrevSelectId: '@list_prev_select_id',
 
   lyric: '@lyric__',
-  musicUrl: '@music_url__',
-  musicOtherSource: '@music_other_source__',
   musicVolume: '@music_volume__',
   playInfo: '@play_info',
 
@@ -76,7 +74,6 @@ export const storageDataPrefixOld = {
   listPosition: '@listposition__',
   listSort: '@listsort__',
   // lyric: '@lyric__',
-  // musicUrl: '@music_url__',
   playInfo: '@play_info',
   syncAuthKey: '@sync_auth_key',
   syncHost: '@sync_host',

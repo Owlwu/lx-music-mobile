@@ -1,6 +1,6 @@
 import { LIST_IDS } from '@/config/constant'
 import { createList, getListMusics, overwriteList, overwriteListFull, overwriteListMusics } from '@/core/list'
-import { filterMusicList, fixNewMusicInfoQuality, toNewMusicInfo } from '@/utils'
+import { convertLegacyMusicList } from '@/utils'
 import { log } from '@/utils/log'
 import { confirmDialog, handleReadFile, handleSaveFile, showImportTip, toast } from '@/utils/tools'
 import listState from '@/store/list/state'
@@ -23,12 +23,12 @@ const importOldListData = async(lists: any[]) => {
     try {
       const targetList = allLists.find(l => l.id == list.id)
       if (targetList) {
-        targetList.list = filterMusicList((list.list as any[]).map(m => toNewMusicInfo(m)))
+        targetList.list = convertLegacyMusicList(list.list as any[])
       } else {
         const listInfo = {
           name: list.name,
           id: list.id,
-          list: filterMusicList((list.list as any[]).map(m => toNewMusicInfo(m))),
+          list: convertLegacyMusicList(list.list as any[]),
           source: list.source,
           sourceListId: list.sourceListId,
           locationUpdateTime: list.locationUpdateTime ?? null,
@@ -49,12 +49,12 @@ const importNewListData = async(lists: Array<LX.List.MyDefaultListInfoFull | LX.
     try {
       const targetList = allLists.find(l => l.id == list.id)
       if (targetList) {
-        targetList.list = filterMusicList(list.list).map(m => fixNewMusicInfoQuality(m))
+        targetList.list = convertLegacyMusicList(list.list)
       } else {
         const data = {
           name: list.name,
           id: list.id,
-          list: filterMusicList(list.list).map(m => fixNewMusicInfoQuality(m)),
+          list: convertLegacyMusicList(list.list),
           source: (list as LX.List.UserListInfoFull).source,
           sourceListId: (list as LX.List.UserListInfoFull).sourceListId,
           locationUpdateTime: (list as LX.List.UserListInfoFull).locationUpdateTime ?? null,
@@ -133,7 +133,7 @@ const importPlayList = async(path: string) => {
   switch (configData.type) {
     case 'defautlList': // 兼容0.6.2及以前版本的列表数据
       if (!await showConfirm()) return true
-      await overwriteListMusics(LIST_IDS.DEFAULT, filterMusicList((configData.data as LX.List.MyDefaultListInfoFull).list.map(m => toNewMusicInfo(m))))
+      await overwriteListMusics(LIST_IDS.DEFAULT, convertLegacyMusicList((configData.data as LX.List.MyDefaultListInfoFull).list))
       break
     case 'playList':
       if (!await showConfirm()) return true
@@ -148,7 +148,7 @@ const importPlayList = async(path: string) => {
     case 'allData':
       if (!await showConfirm()) return true
       // 兼容0.6.2及以前版本的列表数据
-      if (configData.defaultList) await overwriteListMusics(LIST_IDS.DEFAULT, filterMusicList((configData.defaultList as LX.List.MyDefaultListInfoFull).list.map(m => toNewMusicInfo(m))))
+      if (configData.defaultList) await overwriteListMusics(LIST_IDS.DEFAULT, convertLegacyMusicList((configData.defaultList as LX.List.MyDefaultListInfoFull).list))
       // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
       else await importOldListData(configData.playList)
       break
@@ -158,12 +158,12 @@ const importPlayList = async(path: string) => {
       await importNewListData(configData.playList)
       break
     case 'playListPart':
-      configData.data.list = filterMusicList((configData.data as LX.ConfigFile.MyListInfoPart['data']).list.map(m => toNewMusicInfo(m)))
+      configData.data.list = convertLegacyMusicList((configData.data as LX.ConfigFile.MyListInfoPart['data']).list)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
       void handleImportListPart(configData.data)
       return true
     case 'playListPart_v2':
-      configData.data.list = filterMusicList((configData.data as LX.ConfigFile.MyListInfoPart['data']).list).map(m => fixNewMusicInfoQuality(m))
+      configData.data.list = convertLegacyMusicList((configData.data as LX.ConfigFile.MyListInfoPart['data']).list)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
       void handleImportListPart(configData.data)
       return true

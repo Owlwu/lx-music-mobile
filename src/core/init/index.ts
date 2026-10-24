@@ -70,10 +70,6 @@ export default async() => {
   bootLog('I18n inited.')
   bootStep('i18n')
 
-  bootLog('User Api inited.')
-
-  bootLog('Api inited.')
-
   registerPlaybackService()
   bootLog('Playback Service Registered.')
   bootStep('registerPlaybackService')

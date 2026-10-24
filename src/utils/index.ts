@@ -25,125 +25,33 @@ export function compareVer(currentVer: string, targetVer: string): -1 | 0 | 1 {
 }
 
 
-export const toNewMusicInfo = (oldMusicInfo: any): LX.Music.MusicInfo => {
-  const meta: Record<string, any> = {
-    songId: oldMusicInfo.songmid, // 歌曲ID，local为文件路径
-    albumName: oldMusicInfo.albumName, // 歌曲专辑名称
-    picUrl: oldMusicInfo.img, // 歌曲图片链接
-  }
-  const newInfo = {
+export const toNewMusicInfo = (oldMusicInfo: any): LX.Music.MusicInfo | null => {
+  // 只迁移本地歌曲；旧数据里的在线条目已无法播放，直接丢弃
+  if (oldMusicInfo.source !== 'local') return null
+  const filePath: string = oldMusicInfo.filePath ?? oldMusicInfo.songmid ?? ''
+  return {
     id: `${oldMusicInfo.source as string}_${oldMusicInfo.songmid as string}`,
     name: oldMusicInfo.name,
     singer: oldMusicInfo.singer,
-    source: oldMusicInfo.source,
-    interval: oldMusicInfo.interval,
-    meta: meta as LX.Music.MusicInfoOnline['meta'],
+    source: 'local',
+    interval: oldMusicInfo.interval ?? null,
+    meta: {
+      songId: oldMusicInfo.songmid,
+      albumName: oldMusicInfo.albumName ?? '',
+      picUrl: oldMusicInfo.img ?? null,
+      filePath,
+      ext: oldMusicInfo.ext ?? /\.(\w+)$/.exec(filePath)?.[1] ?? '',
+    },
   }
-
-  if (oldMusicInfo.source == 'local') {
-    meta.filePath = oldMusicInfo.filePath ?? oldMusicInfo.songmid ?? ''
-    meta.ext = oldMusicInfo.ext ?? /\.(\w+)$/.exec(meta.filePath as string)?.[1] ?? ''
-  } else {
-    meta.qualitys = oldMusicInfo.types
-    meta._qualitys = oldMusicInfo._types
-    meta.albumId = oldMusicInfo.albumId
-    if (meta._qualitys.flac32bit && !meta._qualitys.flac24bit) {
-      meta._qualitys.flac24bit = meta._qualitys.flac32bit
-      delete meta._qualitys.flac32bit
-
-      meta.qualitys = (meta.qualitys as any[]).map(quality => {
-        if (quality.type == 'flac32bit') quality.type = 'flac24bit'
-        return quality
-      })
-    }
-
-    switch (oldMusicInfo.source) {
-      case 'kg':
-        meta.hash = oldMusicInfo.hash
-        newInfo.id = oldMusicInfo.songmid + '_' + oldMusicInfo.hash
-        break
-      case 'tx':
-        meta.strMediaMid = oldMusicInfo.strMediaMid
-        meta.albumMid = oldMusicInfo.albumMid
-        meta.id = oldMusicInfo.songId
-        break
-      case 'mg':
-        meta.copyrightId = oldMusicInfo.copyrightId
-        meta.lrcUrl = oldMusicInfo.lrcUrl
-        meta.mrcUrl = oldMusicInfo.mrcUrl
-        meta.trcUrl = oldMusicInfo.trcUrl
-        break
-    }
-  }
-
-  return newInfo
 }
 
-export const toOldMusicInfo = (minfo: LX.Music.MusicInfo): any => {
-  const oInfo: Record<string, any> = {
-    name: minfo.name,
-    singer: minfo.singer,
-    source: minfo.source,
-    songmid: minfo.meta.songId,
-    interval: minfo.interval,
-    albumName: minfo.meta.albumName,
-    img: minfo.meta.picUrl ?? '',
-    typeUrl: {},
+export const convertLegacyMusicList = (list: any[]): LX.Music.MusicInfo[] => {
+  const infos: LX.Music.MusicInfo[] = []
+  for (const item of list) {
+    const info = toNewMusicInfo(item)
+    if (info) infos.push(info)
   }
-  if (minfo.source == 'local') {
-    oInfo.filePath = minfo.meta.filePath
-    oInfo.ext = minfo.meta.ext
-    oInfo.albumId = ''
-    oInfo.types = []
-    oInfo._types = {}
-  } else {
-    oInfo.albumId = minfo.meta.albumId
-    oInfo.types = minfo.meta.qualitys
-    oInfo._types = minfo.meta._qualitys
-
-    switch (minfo.source) {
-      case 'kg':
-        oInfo.hash = minfo.meta.hash
-        break
-      case 'tx':
-        oInfo.strMediaMid = minfo.meta.strMediaMid
-        oInfo.albumMid = minfo.meta.albumMid
-        oInfo.songId = minfo.meta.id
-        break
-      case 'mg':
-        oInfo.copyrightId = minfo.meta.copyrightId
-        oInfo.lrcUrl = minfo.meta.lrcUrl
-        oInfo.mrcUrl = minfo.meta.mrcUrl
-        oInfo.trcUrl = minfo.meta.trcUrl
-        break
-    }
-  }
-
-  return oInfo
-}
-
-/**
- * 修复2.0.0-dev.8之前的新列表数据音质
- * @param musicInfo
- */
-export const fixNewMusicInfoQuality = (musicInfo: LX.Music.MusicInfo) => {
-  if (musicInfo.source == 'local') return musicInfo
-
-  // @ts-expect-error
-  if (musicInfo.meta._qualitys.flac32bit && !musicInfo.meta._qualitys.flac24bit) {
-    // @ts-expect-error
-    musicInfo.meta._qualitys.flac24bit = musicInfo.meta._qualitys.flac32bit
-    // @ts-expect-error
-    delete musicInfo.meta._qualitys.flac32bit
-
-    musicInfo.meta.qualitys = musicInfo.meta.qualitys.map(quality => {
-      // @ts-expect-error
-      if (quality.type == 'flac32bit') quality.type = 'flac24bit'
-      return quality
-    })
-  }
-
-  return musicInfo
+  return filterMusicList(infos)
 }
 
 

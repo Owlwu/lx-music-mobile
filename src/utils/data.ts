@@ -183,22 +183,6 @@ export const removeListMusics = async(ids: string[]): Promise<void> => {
   // delaySaveListScrollPosition(global.lx.listScrollPosition)
 }
 
-export const qualitys = ['128k', '320k', 'flac', 'flac24bit']
-export const hasMusicUrlByMusic = async(musicInfo: LX.Music.MusicInfo) => {
-  return getDataMultiple(qualitys.map(q => `${storageDataPrefix.musicUrl}${musicInfo.id}_${q}`)).then((urls) => {
-    return urls.some(([, url]) => !!url)
-  })
-}
-export const clearMusicUrlByMusic = async(musicInfo: LX.Music.MusicInfo) => {
-  await removeDataMultiple(qualitys.map(q => `${storageDataPrefix.musicUrl}${musicInfo.id}_${q}`))
-}
-export const getMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality) => getData<string>(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`).then((url) => url ?? '')
-export const saveMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality, url: string) => saveData(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`, url)
-export const clearMusicUrl = async(keys?: string[]) => {
-  if (!keys) keys = (await getAllKeys()).filter(key => key.startsWith(storageDataPrefix.musicUrl))
-  await removeDataMultiple(keys)
-}
-
 export const getLyric = async(musicInfo: LX.Music.MusicInfo) => getData<LX.Music.LyricInfo>(`${storageDataPrefix.lyric}${musicInfo.id}`).then(lrcInfo => lrcInfo ?? { lyric: '' })
 export const saveLyric = async(musicInfo: LX.Music.MusicInfo, lyricInfo: LX.Music.LyricInfo) => saveData(`${storageDataPrefix.lyric}${musicInfo.id}`, lyricInfo)
 export const clearLyric = async(keys?: string[]) => {
@@ -239,13 +223,6 @@ export const clearMusicVolume = async(keys?: string[]) => {
   await removeDataMultiple(keys)
 }
 
-export const getOtherSource = async(id: string) => getData<LX.Music.MusicInfoOnline[]>(`${storageDataPrefix.musicOtherSource}${id}`).then((url) => url ?? [])
-export const saveOtherSource = async(id: string, sourceInfo: LX.Music.MusicInfoOnline[]) => saveData(`${storageDataPrefix.musicOtherSource}${id}`, sourceInfo)
-export const clearOtherSource = async(keys?: string[]) => {
-  if (!keys) keys = (await getAllKeys()).filter(key => key.startsWith(storageDataPrefix.musicOtherSource))
-  await removeDataMultiple(keys)
-}
-
 /**
  * 获取不喜欢列表信息
  * @returns 不喜欢列表信息
@@ -261,22 +238,14 @@ export const saveDislikeListRules = async(rules: string) => {
   await saveData(dislikeListPrefix, rules)
 }
 
-// export const clearMusicUrlAndLyric = async() => {
-//   let keys = (await getAllKeys()).filter(key => key.startsWith(storageDataPrefix.musicUrl) || key.startsWith(storageDataPrefix.lyric))
-//   await removeDataMultiple(keys)
-// }
-
 export const getMetaCache = async() => {
   const keys = await getAllKeys()
   const info = {
-    otherSourceKeys: [] as string[],
-    // musicUrlKeys: [] as string[],
     lyricKeys: [] as string[],
   }
 
   for (const key of keys) {
-    if (key.startsWith(storageDataPrefix.musicOtherSource)) info.otherSourceKeys.push(key)
-    else if (key.startsWith(storageDataPrefix.lyric)) info.lyricKeys.push(key)
+    if (key.startsWith(storageDataPrefix.lyric)) info.lyricKeys.push(key)
   }
 
   return info

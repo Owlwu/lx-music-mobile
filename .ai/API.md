@@ -73,8 +73,9 @@
 
 写入统一经 `utils/data.ts`（分块 + 节流），不要直接调 AsyncStorage。
 
-> 历史在线相关键（`@music_url__`、`@music_other_source__`）仍留在 `storageDataPrefix` 里但**无代码读写**；
-> 旧数据可能残留，是否清理需谨慎（清缓存入口会按前缀删除）。
+> 在线能力相关的 `@music_url__`、`@music_other_source__` 键已从 `storageDataPrefix` 删除，
+> 对应的读写/清理函数（`getMusicUrl`/`getOtherSource` 等）与「资源缓存」设置页也已移除；
+> 旧版本遗留的这些键不再被读写，也不会自动清理（如需清空可手动清除应用数据）。
 
 ## 5. 后续联网能力（尚未实现）
 

@@ -1,4 +1,4 @@
-import { filterMusicList, toNewMusicInfo } from '@/utils'
+import { convertLegacyMusicList } from '@/utils'
 import { LIST_IDS, storageDataPrefix, storageDataPrefixOld } from '@/config/constant'
 import { getAllKeys, getData, getDataMultiple, removeData, saveData } from '@/plugins/storage'
 import { allMusicList, listDataOverwrite, userLists } from '@/utils/listManage'
@@ -8,7 +8,7 @@ import { saveListMusics, saveUserList } from '@/utils/data'
 interface OldUserListInfo {
   name: string
   id: string
-  source?: LX.OnlineSource
+  source?: string
   sourceListId?: string
   locationUpdateTime?: number
   list: any[]
@@ -25,15 +25,15 @@ interface OldUserListInfo {
   }
   let isRequiredSave = false
   if (playList) {
-    if (playList.defaultList) listDataAll.defaultList = filterMusicList(playList.defaultList.list.map(m => toNewMusicInfo(m)))
-    if (playList.loveList) listDataAll.loveList = filterMusicList(playList.loveList.list.map(m => toNewMusicInfo(m)))
-    if (playList.tempList) listDataAll.tempList = filterMusicList(playList.tempList.list.map(m => toNewMusicInfo(m)))
+    if (playList.defaultList) listDataAll.defaultList = convertLegacyMusicList(playList.defaultList.list)
+    if (playList.loveList) listDataAll.loveList = convertLegacyMusicList(playList.loveList.list)
+    if (playList.tempList) listDataAll.tempList = convertLegacyMusicList(playList.tempList.list)
     if (playList.userList) {
       listDataAll.userList = playList.userList.map(l => {
         return {
           ...l,
           locationUpdateTime: l.locationUpdateTime ?? null,
-          list: filterMusicList(l.list.map(m => toNewMusicInfo(m))),
+          list: convertLegacyMusicList(l.list),
         }
       })
     }
@@ -42,8 +42,8 @@ interface OldUserListInfo {
     const config = await parseDataFile<{ list?: { defaultList?: any[], loveList?: any[] } }>('config.json')
     if (config?.list) {
       const list = config.list
-      if (list.defaultList) listDataAll.defaultList = filterMusicList(list.defaultList.map(m => toNewMusicInfo(m)))
-      if (list.loveList) listDataAll.loveList = filterMusicList(list.loveList.map(m => toNewMusicInfo(m)))
+      if (list.defaultList) listDataAll.defaultList = convertLegacyMusicList(list.defaultList)
+      if (list.loveList) listDataAll.loveList = convertLegacyMusicList(list.loveList)
       isRequiredSave = true
     }
   }
@@ -122,14 +122,14 @@ export const migrateListData = async() => {
     userList: [],
     tempList: [],
   }
-  if (playList.defaultList) listDataAll.defaultList = filterMusicList(playList.defaultList.list.map(m => toNewMusicInfo(m)))
-  if (playList.loveList) listDataAll.loveList = filterMusicList(playList.loveList.list.map(m => toNewMusicInfo(m)))
+  if (playList.defaultList) listDataAll.defaultList = convertLegacyMusicList(playList.defaultList.list)
+  if (playList.loveList) listDataAll.loveList = convertLegacyMusicList(playList.loveList.list)
   if (playList.userList) {
     listDataAll.userList = playList.userList.map(l => {
       return {
         ...l,
         locationUpdateTime: l.locationUpdateTime ?? null,
-        list: filterMusicList(l.list.map(m => toNewMusicInfo(m))),
+        list: convertLegacyMusicList(l.list),
       }
     })
   }

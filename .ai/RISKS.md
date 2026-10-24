@@ -42,15 +42,17 @@
   大列表 + 频繁写会慢（注意节流）。
 - 设置项有迁移路径（`config/migrateSetting.ts`、`config/migrate.ts`）。**改/删 `LX.AppSetting` 键必须写迁移**。
 - 键是按 id 版本化的（`@list__<id>`、`@lyric__<id>`、`@music_volume__<id>`）；清缓存时注意前缀匹配。
-- 旧在线能力遗留键：`@music_url__`、`@music_other_source__` 仍在 `storageDataPrefix` 中但无代码读写；
-  旧数据可能残留。清缓存入口按前缀删除，改动前先确认不会误删歌词/音量等仍在使用的前缀。
+- 旧在线能力遗留键：`@music_url__`、`@music_other_source__` 已从 `storageDataPrefix` 移除，
+  对应读写函数与「资源缓存」设置页已删除；旧设备上的这些键仍会留在 AsyncStorage 里但无人读写。
+  清缓存入口现在只处理歌词/音量等仍在使用的键，改动前先确认前缀范围。
 - Android 存储访问走 `utils/fs.ts`（SAF/授权目录）；`requestStoragePermission` 流程是 Android 专属。
 
 ## 5. 精简后的残留
 - **旧列表里的在线条目无法播放**：历史数据可能残留 `source != 'local'` 的歌曲。播放会提示文件不存在；
   要彻底干净需一次性清洗（先备份 AsyncStorage 数据）。
-- `types/common.d.ts` 仍保留 `LX.Quality` / `LX.QualityList` 等类型（历史遗留声明），
-  但已无在线音源使用；`LX.UserApi` 类型已随功能删除。新代码不要引用这些遗留类型。
+- `LX.Quality` / `LX.QualityList` / `LX.OnlineSource` / `LX.Music.MusicInfoOnline` / `LX.Download`
+  等类型已全部删除；`LX.Music.MusicInfo` 就是本地歌曲（`source: 'local'`），
+  `MusicInfoLocal` 仅作为等价别名保留。
 - `types/list.d.ts` 里若还有 `ListUpdateInfo`/`SearchHistoryList` 等历史类型，属于遗留声明，
   新代码不要引用。
 

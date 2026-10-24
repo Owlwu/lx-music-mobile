@@ -1,7 +1,7 @@
 import { addListMusics, getListMusics, removeListMusics, removeUserList, setFetchingListStatus, updateListMusics } from '@/core/list'
 import { confirmDialog, handleReadFile, handleSaveFile, showImportTip, toast } from '@/utils/tools'
 import { log } from '@/utils/log'
-import { filterFileName, filterMusicList, formatPlayTime2, toNewMusicInfo } from '@/utils'
+import { filterFileName, convertLegacyMusicList, formatPlayTime2 } from '@/utils'
 import { handleImportListPart } from '@/screens/Home/Views/Setting/settings/Backup/actions'
 import { readMetadata, scanAudioFiles, type MusicMetadataFull } from '@/utils/localMediaMetadata'
 import settingState from '@/store/setting/state'
@@ -30,7 +30,7 @@ const readListData = async(path: string) => {
   switch (configData.type) {
     case 'playListPart':
       listData = configData.data
-      listData.list = filterMusicList(listData.list.map(m => toNewMusicInfo(m)))
+      listData.list = convertLegacyMusicList(listData.list)
       break
     case 'playListPart_v2':
       listData = configData.data
