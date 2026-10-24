@@ -11,7 +11,6 @@ export const LIST_IDS = {
   DEFAULT: 'default',
   LOVE: 'love',
   TEMP: 'temp',
-  DOWNLOAD: 'download',
   PLAY_LATER: null,
 } as const
 
@@ -23,8 +22,6 @@ export const LIST_IDS = {
 export enum COMPONENT_IDS {
   home = 'home',
   playDetail = 'playDetail',
-  songlistDetail = 'songlistDetail',
-  comment = 'comment',
 }
 
 export enum NAV_SHEAR_NATIVE_IDS {
@@ -32,8 +29,6 @@ export enum NAV_SHEAR_NATIVE_IDS {
   playDetail_header = 'playDetail_header',
   // playDetail_pageIndicator = 'playDetail_pageIndicator',
   playDetail_player = 'playDetail_player',
-  songlistDetail_pic = 'songlistDetail_pic',
-  songlistDetail_title = 'songlistDetail_title',
 }
 
 
@@ -62,13 +57,6 @@ export const storageDataPrefix = {
   notificationTipEnable: '@notification_tip_enable',
   ignoringBatteryOptimizationTipEnable: '@ignoring_battery_optimization_tip_enable',
 
-  searchHistoryList: '@search_history_list',
-  listUpdateInfo: '@list_update_info',
-  ignoreVersion: '@ignore_version',
-  ignoreVersionFailTipTimeKey: '@ignore_version_fail_tip_time',
-  leaderboardSetting: '@leaderboard_setting',
-  songListSetting: '@songist_setting',
-  searchSetting: '@search_setting',
 
   fontSize: '@font_size',
 
@@ -129,24 +117,6 @@ export const MUSIC_TOGGLE_MODE_LIST = [
 ] as const
 
 export const DEFAULT_SETTING = {
-  leaderboard: {
-    source: 'kw' as LX.OnlineSource,
-    boardId: 'kw__16',
-  },
-
-  songList: {
-    source: 'kw' as LX.OnlineSource,
-    sortId: 'new',
-    tagName: '',
-    tagId: '',
-  },
-
-  search: {
-    temp_source: 'kw' as LX.OnlineSource,
-    source: 'all' as LX.OnlineSource | 'all',
-    type: 'music' as 'music' | 'songlist',
-  },
-
   viewPrevState: {
     id: 'nav_love' as NAV_ID_Type,
     // query: {},

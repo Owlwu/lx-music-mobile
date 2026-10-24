@@ -135,9 +135,6 @@ export const toast = (message: string, duration: 'long' | 'short' = 'short', pos
 
 export const openUrl = async(url: string): Promise<void> => Linking.canOpenURL(url).then(async() => Linking.openURL(url))
 
-export const assertApiSupport = (source: LX.Source): boolean => {
-  return source == 'local' || global.lx.qualityList[source] != null
-}
 
 // const handleRemoveDataMultiple = async keys => {
 //   await removeDataMultiple(keys.splice(0, 500))

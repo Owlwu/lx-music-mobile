@@ -1,74 +1,73 @@
 # DEVELOPMENT
 
-## Prerequisites
-- Node.js (engines `>=18.0.0`, CI uses Node 20), npm (>=8.5.2).
-- Android SDK + JDK for building the native app (Android-only target).
-- A connected Android device/emulator for `run-android`.
-- No iOS toolchain needed (iOS is unsupported/untested).
+## 前置条件
+- Node.js `>= 18`（CI 用 Node 20），npm `>= 8.5.2`
+- Android SDK + JDK（Gradle 8.8，`android/local.properties` 指向 SDK）
+- 已连接的 Android 设备或模拟器（`run-android` 需要）
+- 不需要 iOS 工具链
 
-## Setup
+## 安装
 ```bash
-npm install            # or: npm ci
+npm install            # 或 npm ci
 ```
-Metro resolves platform files by extension order (see `babel.config.js` / `metro.config.js`); the `@` alias maps to `./src`.
+Metro 按扩展名顺序解析平台文件（`babel.config.js` / `metro.config.js`）；`@` 别名指向 `./src`。
 
-## Run / develop
-| Command | What it does |
+## 开发
+| 命令 | 作用 |
 | --- | --- |
-| `npm start` | Start Metro bundler |
-| `npm run dev` | `react-native run-android --active-arch-only` (build+install to device) |
-| `npm run sc` | `react-native start --reset-cache` (clear Metro cache) |
-| `npm run menu` | `adb shell input keyevent 82` (open device app drawer, dev helper) |
-| `npm run rd` | Open React DevTools |
+| `npm start` | 启动 Metro |
+| `npm run dev` | `react-native run-android --active-arch-only`（构建+安装） |
+| `npm run sc` | `react-native start --reset-cache` |
+| `npm run menu` | `adb shell input keyevent 82`（打开开发者菜单） |
+| `npm run rd` | React DevTools |
 
-Typical dev loop: `npm start` in one terminal, `npm run dev` in another.
+典型循环：一个终端 `npm start`，另一个 `npm run dev`（改 JS 后热更新，改原生需重新 `run-android`）。
 
-## Build
-| Command | What it does |
+## 构建
+| 命令 | 作用 |
 | --- | --- |
-| `npm run pack` | = `pack:android` → `cd android && gradlew.bat assembleRelease` (release APK/AAB) |
-| `npm run pack:android:debug` | `./gradlew assembleDebug` (note: uses `./gradlew`, the unix wrapper) |
+| `npm run pack:android` | `cd android && gradlew.bat assembleRelease`（release APK） |
+| `npm run pack:android:debug` | `gradlew.bat assembleDebug`（**改原生后用它验证**） |
+| `npm run pack` | 等同 `pack:android` |
 | `npm run clear` | `cd android && gradlew.bat clean` |
-| `npm run clear:full` | `git clean -fdx` (keeps `android/keystore.properties`, `*.keystore`) |
-| `npm run bundle-android` | Bundle JS into `android/app/src/main/assets/index.android.bundle` |
-| `npm run build-test` | Bundle (dev) to repo root `index.android.bundle` — used by CI |
-| `npm run build:theme` | `node src/theme/themes/createThemes.js` (regenerate theme files) |
-| `npm run publish` | `node publish` (release/publish helper) |
+| `npm run clear:full` | 深度清理（保留 keystore 配置） |
+| `npm run bundle-android` | 把 JS 打进 `android/app/src/main/assets/index.android.bundle` |
+| `npm run build-test` | 在仓库根输出 `index.android.bundle`（CI 校验用） |
+| `npm run build:theme` | `node src/theme/themes/createThemes.js`（重新生成主题） |
 
-> Windows note: `pack`/`clear` use `gradlew.bat`; `pack:android:debug` uses `./gradlew`. Keep the correct one for your OS.
-> Release signing uses keystore files referenced via `android/keystore.properties` (git-ignored). `[待确认: release keystore source in CI]`
+> release 签名依赖 `android/keystore.properties`（git-ignored）与 keystore 文件。
+> Android SDK 版本：`minSdk 21` / `targetSdk 29` / `compileSdk 36`；applicationId `cn.toside.music.mobile`。
 
-## Lint
-- `npm run lint` → `eslint . --ext .js,.jsx,.ts,.tsx`
-- `npm run lint:fix` → same with `--fix`
-- Config: `.eslintrc.cjs` (standard + `standard-with-typescript` + react + react-hooks, with several relaxed rules). Prettier via `prettier config standard`.
-- ESLint ignores include `src/utils/simplify-chinese-main/`, the theme image/`createThemes` JS, `test.js`, `publish/`, and the bundle output.
+## 校验
+| 命令 | 作用 |
+| --- | --- |
+| `npm run lint` / `lint:fix` | ESLint（`.js,.jsx,.ts,.tsx`） |
+| `npm run tsc`（= `typecheck`） | `tsc --noEmit` |
+| `npm run build-test` | Metro 打包（能发现悬空 import / 语法错误） |
+| `cd android && gradlew.bat assembleDebug` | 原生改动后的编译验证 |
 
-## Tests
-- **No automated test framework** (no Jest config; not in CI). The only de-facto gate is CI (`.github/workflows/build-test.yml`) on PRs to `dev`:
-  1. `npm ci`
-  2. `npm run lint`
-  3. `npm run build-test` (Metro bundle must succeed)
-- `test.js` at the repo root is a **manual demo** (network/polyfill scratch), not a test — it's ESLint-ignored.
-- `src/utils/nativeModules/cryptoTest.ts` is a manual native-crypto exerciser, not a test.
-- **Verify changes by** running `npm run lint` and a successful bundle/build, and by exercising the app on a device.
+ESLint 配置：`.eslintrc.cjs`（standard + standard-with-typescript + react + react-hooks）。
+忽略项包含 `src/utils/simplify-chinese-main/`、主题生成脚本、`publish/` 与 bundle 产物。
 
-## Environment / platform-specific code
-- Platform branching is done mainly via the `isAndroid` flag / `Platform.OS` in `src/utils/tools.ts`, and by guarding Android-only `NativeModules` access. A platform-file convention (`foo.android.ts` before `foo.ts`, resolved by `babel.config.js` extensions) is **available** but is **not currently used** in `src` — prefer the existing `isAndroid`/guard style to match the codebase.
-- Native modules are Android-only; guard `NativeModules` access for any cross-platform path.
-- `process.env` values are injected at build via `metro.config.js` (`LX_VERSION`, `LX_VERSION_CODE`, `LX_DEBUG_MODE`).
+## CI（GitHub Actions）
+| 工作流 | 作用 |
+| --- | --- |
+| `.github/workflows/build-test.yml` | PR 门禁：`npm ci` → `npm run lint` → `npm run build-test` |
+| `release.yml` / `beta-pack.yml` | release / beta 打包 |
+| `publish-version-info.yml` | 发布版本信息（上游用；本 fork 已无应用内更新检查） |
 
-## CI (GitHub Actions)
-- `.github/workflows/build-test.yml` — PR to `dev`: lint + bundle (the "test" gate).
-- `.github/workflows/release.yml` / `beta-pack.yml` — release & beta packaging.
-- `.github/workflows/publish-version-info.yml` — publishes version info (used by in-app update check).
-- Reusable actions in `.github/actions/setup`, `.github/actions/upload-artifact`.
+## 原生（android/）
+- 原生模块：`crypto`、`cache`、`lyric`（悬浮歌词）、`utils`、`diagnostics`，
+  路径 `android/app/src/main/java/cn/toside/music/mobile/`，在 `MainApplication.java` 的 `getPackages()` 注册。
+- **`userApi/`（QuickJS 自定义音源）与 `wang.harlon.quickjs:wrapper-android` 依赖已删除**；
+  新增原生模块时记得同步 `build.gradle` 依赖与 Package 注册。
+- `process.env` 注入在 `metro.config.js`（`LX_VERSION`、`LX_VERSION_CODE`、`LX_DEBUG_MODE`）。
 
-## Conventions to follow when building
-- Keep `src/core` UI-free; put UI in `screens`/`components`.
-- Persist via `utils/data.ts` (don't call AsyncStorage directly); keys live in `config/constant.ts`.
-- Run `npm run lint:fix` and `npm run build-test` before considering a change done.
+## 约定
+- `core` 保持无 React；UI 放 `screens`/`components`
+- 持久化只经 `utils/data.ts`（键在 `config/constant.ts`）
+- 改完跑 `npm run tsc` + `npm run lint:fix` + `npm run build-test`；动原生再加 `assembleDebug`
 
-## Cross-references
-- Code style details: `CONVENTIONS.md`
-- Where new data/events live: `ARCHITECTURE.md`, `MODULES.md`
+## 交叉引用
+- 代码风格：`CONVENTIONS.md`
+- 模块与数据流：`MODULES.md`、`ARCHITECTURE.md`

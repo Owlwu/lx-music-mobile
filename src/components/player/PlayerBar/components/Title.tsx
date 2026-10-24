@@ -7,7 +7,6 @@ import { useTheme } from '@/store/theme/hook'
 import commonState from '@/store/common/state'
 import playerState from '@/store/player/state'
 import Text from '@/components/common/Text'
-import { LIST_IDS } from '@/config/constant'
 import { createStyle, formatMusicName } from '@/utils/tools'
 
 
@@ -27,7 +26,7 @@ export default ({ isHome }: { isHome: boolean }) => {
 
   const handleLongPress = () => {
     const listId = playerState.playMusicInfo.listId
-    if (!listId || listId == LIST_IDS.DOWNLOAD) return
+    if (!listId) return
     global.app_event.jumpListPosition()
   }
   // console.log('render title')

@@ -2,15 +2,12 @@
 // import progress from 'request-progress'
 import BackgroundTimer from 'react-native-background-timer'
 import { requestMsg } from './message'
-import { bHh } from './musicSdk/options'
-import { deflateRaw } from 'pako'
 
 const defaultHeaders = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36',
 }
 // var proxyUrl = "http://" + user + ":" + password + "@" + host + ":" + port;
 // var proxiedRequest = request.defaults({'proxy': proxyUrl});
-
 
 /**
  * 请求超时自动重试
@@ -85,17 +82,6 @@ const fetchWithTimeout = (resource, options) => {
   }
 } */
 
-
-const handleDeflateRaw = data => new Promise((resolve, reject) => {
-  resolve(Buffer.from(deflateRaw(data)))
-  // deflateRaw(data, (err, buf) => {
-  //   if (err) return reject(err)
-  //   resolve(buf)
-  // })
-})
-
-const regx = /(?:\d\w)+/g
-
 const handleRequestData = async(url, {
   method = 'get',
   headers = {},
@@ -135,15 +121,6 @@ const handleRequestData = async(url, {
   }
   if (headers['Content-Type'] === 'application/json' && options.body) {
     options.body = JSON.stringify(options.body)
-  }
-  if (headers[bHh]) {
-    let s = Buffer.from(bHh, 'hex').toString()
-    s = s.replace(s.substr(-1), '')
-    s = Buffer.from(s, 'base64').toString()
-    const v = process.versions.app.split('-')[0].split('.').map(n => n.length < 3 ? n.padStart(3, '0') : n).join('')
-    const v2 = process.versions.app.split('-')[1] || ''
-    headers[s] = !s || `${(await handleDeflateRaw(Buffer.from(JSON.stringify(`${url}${v}`.match(regx), null, 1).concat(v)).toString('base64'))).toString('hex')}&${parseInt(v)}${v2}`
-    delete headers[bHh]
   }
 
   return {

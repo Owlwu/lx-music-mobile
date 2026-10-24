@@ -1,76 +1,83 @@
 # RISKS
 
-Fragile / high-risk areas. Read this before touching player, sync, native, or storage code.
+易碎/高风险区域。改播放器、同步、原生、存储前先读这里。
 
-## 1. Playback (highest risk)
-- `src/core/player/player.ts` + `src/plugins/player/*` + `src/core/music/*` are tightly coupled with a **circular dependency** (core↔plugin). `plugins/player/service.ts` and `index.ts` import from `core/player/player.ts`, which imports from `plugins/player`. Keep cross-imports at the **function level** (avoid module-eval side effects) or you can trigger init-order crashes.
-- Two sources of "play state" must stay in sync: the JS `playerState.setPlayState` and the native TrackPlayer engine state (mirrored via `app_event`). Divergence causes the PlayerBar/PlayDetail to desync from actual audio.
-- Audio URL resolution is best-effort with retry + backoff (`getMusicPlayUrl`). It depends on the active API source returning a URL; a bad/empty URL must be handled as "no playable source", not a crash.
-- Auto-advance logic (`getNextPlayMusicInfo`) is case-heavy (listLoop / random / list / singleLoop / none). Off-by-one or stale-index bugs are easy.
-- Remote controls (headset/lock screen) flow through `plugins/player/service.ts` → `global.app_event` → core; easy to double-trigger.
-- **Verify**: play/pause/next/prev, seek, background behavior, lock-screen controls, and "source unavailable" fallback.
+## 1. 播放（最高风险）
+- `src/core/player/player.ts` + `src/plugins/player/*` + `src/core/music/*` 存在**设计上的循环引用**
+  （core ↔ plugin）。保持**函数级**引用，避免模块求值副作用，否则会初始化顺序崩溃。
+- 两份「播放状态」必须同步：JS 侧 `playerState` 与原生 TrackPlayer 引擎状态（经 `app_event` 镜像）。
+  不一致会导致 PlayerBar/PlayDetail 与实际音频脱节。
+- 本地播放路径：`core/music/local.ts` 把歌曲 id（文件路径 / `content://`）转成可播放 URL；
+  文件被移动或授权失效会抛「文件不存在」，需按设置自动跳过或提示，而不是崩溃。
+- 自动切歌（`getNextPlayMusicInfo`）分支多（listLoop / random / list / singleLoop / none），
+  注意「稍后播放」临时队列与 `playedList` 历史的下标问题。
+- 遥控（通知栏/锁屏/耳机键）经 `plugins/player/service.ts` → `app_event` → core，容易重复触发。
 
-## 2. Custom source / user API (QuickJS)
-- `src/core/init/userApi/` + `src/utils/nativeModules/userApi.ts` + Android `userApi/QuickJS.java` run **user-provided JS** in a native QuickJS engine. This is the only way online playback gets a URL in this build (built-in `apiList` is empty — see API.md).
-- JS↔script bridge is async with a 20s timeout (`request`/`response` + `BackgroundTimer`). Bugs here can hang or silently drop requests.
-- Android-only: there is **no iOS equivalent** of the QuickJS native module, so user-api (and thus online playback) is effectively Android-only.
-- Scripts are untrusted input; validate/contain failures so a bad script can't crash the app.
+## 2. 同步
+- `src/plugins/sync/` 连接**用户自建的桌面端服务**（HTTP + WebSocket `message2call`）。协议在
+  `client/modules/base/message2call.ts`、版本常量在 `plugins/sync/constants.ts`；仓库内**没有服务端实现**，
+  改协议必须与桌面端一起改。
+- 认证 AES + RSA（`client/auth.ts`），密钥处理不一致会静默失败。
+- `connectServer()` **失败时 reject**（与桌面端 `client/index.ts` 契约一致）。所有调用点必须 `.catch`
+  （启动自动连接 + 设置页开关）。未捕获的拒绝会以 LogBox 形式弹给用户；`hello` 最长可能等 10s。
+  失败文案已通过 `syncStatus` 展示，调用点只应 `log.warn`，不要重复 toast。
+- 同步会改本地列表（`global.list_event` / `dislike_event`）；本地编辑与远端推送的竞态可能丢/重。
+- `musicFile` 会在 `sync.musicFile.root` 内**真实读写/删除文件**；入参路径一律过 `assertSafeRelPath`，
+  不要绕过。
+- `musicFile` 的相等判定是「大小 + 内容签名」（首/尾 4 KiB 的 fnv1a32+djb2_32）；签名读失败会退回
+  「仅大小」，同大小内容变更可能漏检（查 `[musicFileSync][WARN][scan] signature failed` 日志）。
+- 同名 `.lrc` 随音频一起搬运，不是独立条目；只改 `.lrc` 内容不会被识别为变更。
+- 冲突默认用对端覆盖；无断点续传，取消会留半截文件（下次同步表现为冲突）。
+- baseline 存在 `@music_file_sync_baseline`（AsyncStorage）。
+- `diff.ts` 与桌面端**逐字节镜像**，改一侧必须改另一侧（桌面端 `tests/music-file-fs.test.ts` 会断言）。
 
-## 3. Sync
-- `src/plugins/sync/` talks to a **user-hosted server** over HTTP + WebSocket (`message2call`). Protocol is in `modules/base/message2call.ts`; versioned constants in `constants.ts`. There is no in-repo server, so protocol changes need coordination.
-- Auth uses AES + RSA (credentials encrypted, server public key RSA-wrapped) — `auth.ts`. Mismatched key handling breaks auth silently.
-- Sync mutates local lists via `global.list_event`/`dislike_event`; a race between a local edit and a server push can drop or duplicate items.
-- `connectServer()` **rejects** on failure (same contract as the PC client `client/index.ts` — keep the two mirrored).
-  Every call site must attach `.catch` (`core/init/sync.ts` startup auto-connect + the two calls in
-  `screens/.../Sync/IsEnable.tsx`). An unhandled rejection here is exactly what the user sees as the LogBox
-  notification "Possible unhandled promise rejection: Error: Connect service failed": the `hello` request can
-  take up to 10 s to time out, so it usually pops up *while the user is already playing music* rather than at boot.
-  The failure text is already published via `syncStatus` (Settings → Sync), so call sites should only log it
-  (`log.warn`, gated by the sync-log switch) instead of rethrowing.
-- Features synced: `list`, `dislike`, **`musicFile`** (local music files + sibling `.lrc`); history is still not synced.
-- `musicFile` writes/deletes **real files** inside `sync.musicFile.root`. Every incoming path is validated by
-  `assertSafeRelPath` before being joined to the root — never bypass that check.
-- File-level tradeoffs (size + content-signature equality, `.lrc` carried with its song, no resume, per-device
-  baseline) are listed in `lx-music-desktop/.ai/RISKS.md`; `diff.ts` must stay byte-identical to the desktop copy.
-- The content signature is computed in `localFs.scanEntries` (`readFileSignature` → `readFileSlice` head+tail);
-  when `RNFS.read` cannot open a path (e.g. names containing `%`), that file silently loses its signature and
-  falls back to the size-only rule — check the `[musicFileSync][WARN][scan] signature failed` lines if a
-  same-size content change is not detected.
+## 3. 状态 / 事件系统
+- 整个 UI 响应式依赖 `global.state_event`（`setImmediate` 异步）。改了 state 不 emit = UI 不更新；
+  emit 了没有订阅 = 静默无效。
+- 单例按引用共享；绕过 action 直接改字段是常见 desync 来源。
+- `config/globalData.ts` 在 **import 时**创建 `global.lx` 与事件枢纽；早于它执行的代码拿不到全局。
 
-## 4. State / event system (cutting across the app)
-- The whole UI reactivity depends on `global.state_event` (async via `setImmediate`). Forgetting to emit after a state mutation = stale UI; emitting without a subscription = silent no-op.
-- Singletons are shared by reference; mutating them outside an action (bypassing the emit) is a common source of desync.
-- `config/globalData.ts` creates `global.lx` + event hubs **at import time**. Code that runs before it (or in a worker) won't have these globals.
+## 4. 持久化 / 存储
+- `utils/data.ts` 维护内存缓存与节流写；`plugins/storage.ts` 对 >500KB 的值自动分块。
+  大列表 + 频繁写会慢（注意节流）。
+- 设置项有迁移路径（`config/migrateSetting.ts`、`config/migrate.ts`）。**改/删 `LX.AppSetting` 键必须写迁移**。
+- 键是按 id 版本化的（`@list__<id>`、`@lyric__<id>`、`@music_volume__<id>`）；清缓存时注意前缀匹配。
+- 旧在线能力遗留键：`@music_url__`、`@music_other_source__` 仍在 `storageDataPrefix` 中但无代码读写；
+  旧数据可能残留。清缓存入口按前缀删除，改动前先确认不会误删歌词/音量等仍在使用的前缀。
+- Android 存储访问走 `utils/fs.ts`（SAF/授权目录）；`requestStoragePermission` 流程是 Android 专属。
 
-## 5. Persistence / storage
-- `src/utils/data.ts` holds large in-memory caches and throttled writes; `plugins/storage.ts` chunks values >500KB. Large lists + aggressive writes can be slow or hit AsyncStorage limits.
-- Settings have a **migration path** (`src/config/migrateSetting.ts`, `migrate.ts`). Adding/renaming a `LX.AppSetting` key without a migration breaks existing users' saved settings.
-- Many keys are versioned (`@list__<id>`, `@lyric__<id>`, `@music_url__<id>`). Be careful invalidating caches (see `core/music` lyric/URL cache + `core/common` `unlink(TEMP_FILE_PATH)`).
-- Filesystem/SAF access (Android scoped storage) is via `src/utils/fs.ts`; permission flow (`core/common.requestStoragePermission`) is Android-specific.
+## 5. 精简后的残留
+- **旧列表里的在线条目无法播放**：历史数据可能残留 `source != 'local'` 的歌曲。播放会提示文件不存在；
+  要彻底干净需一次性清洗（先备份 AsyncStorage 数据）。
+- `types/common.d.ts` 仍保留 `LX.Quality` / `LX.QualityList` 等类型（历史遗留声明），
+  但已无在线音源使用；`LX.UserApi` 类型已随功能删除。新代码不要引用这些遗留类型。
+- `types/list.d.ts` 里若还有 `ListUpdateInfo`/`SearchHistoryList` 等历史类型，属于遗留声明，
+  新代码不要引用。
 
-## 6. Music source adapters
-- `src/utils/musicSdk/<kw,kg,tx,wy,mg>` target **external, vendor-controlled endpoints**. They break when vendors change APIs, headers, or add anti-bot/crypto (e.g. `kw/decodeLyric.js`). No tests cover these; verify against live endpoints.
-- `apis(source)` throws `'Api is not found'` when no api-source is active — callers must handle that (it's expected when no user-api is set).
-- `bd` is disabled and `xm` is a stub; don't assume they work.
+## 6. 原生 / 平台
+- 自定义 Android Java 模块（`crypto`、`cache`、`lyric`、`utils`、`diagnostics`）任何 JS 侧
+  `NativeModules` 调用都要做存在性守卫。
+- targetSdk 29 / compileSdk 36 / minSdk 21：新系统（后台限制、分区存储）行为需实测。
+- iOS 目录存在但不支持；Android 专属能力在 iOS 不可用。
 
-## 7. Native / platform
-- Custom Android Java modules under `android/app/src/main/java/cn/toside/music/mobile/` (`crypto`, `userApi`, `cache`, `lyric`, `utils`). Any JS-side `NativeModules` call must be guarded for missing modules.
-- targetSdk 29 (compileSdk 36, minSdk 21) — Android 5+; newer-OS behaviors (background limits, scoped storage) apply. `[待确认: current targetSdk policy]`
-- iOS is present but unsupported; Android-only features will not work there.
+## 7. 构建 / 依赖风险
+- 使用 `react-native-track-player`（fork：`@chocabozu/react-native-track-player`），升级上游差异大。
+- RN 0.73.11 升级成本高（原生 + Babel/Metro + presets）。
+- CI 只跑 `lint` + Metro bundle，**不跑真机**；运行时回归只能人工发现。
 
-## 8. Build / dependency risk
-- Uses a **fork** of `react-native-track-player` (`@chocabozu/react-native-track-player`) — upstream API differences can bite on upgrades.
-- Pinned-ish RN 0.73.11; upgrades are high-touch (native + Babel/Metro + `@react-native/*` presets).
-- CI gate is only `lint` + Metro bundle — it does **not** run the app; runtime regressions are not caught automatically.
+## 8. 验证缺口
+- 没有 Jest / 单测框架。门禁是 `tsc` + ESLint + `build-test`（CI）。
+- 原生改动必须 `gradlew.bat assembleDebug`（或 release）验证，`tsc` 覆盖不到 Java/Gradle。
+- 诊断日志：`.diagnosis/` 与 `utils/log.ts` 体系用于真机排查，出问题先看日志再改代码。
 
-## How to de-risk changes
-1. Re-read the relevant `DATA_FLOW.md` section first.
-2. Keep changes within one layer where possible; respect core↔plugin function-level imports.
-3. For state: mutate in an action + emit; add a hook to observe.
-4. For settings keys: add a migration in `config/migrateSetting.ts`.
-5. Run `npm run lint` + `npm run build-test`, then verify on-device (playback, background, source fallback, sync).
+## 降风险清单
+1. 先读对应 `DATA_FLOW.md` 小节
+2. 尽量在单层内改动；遵守 core↔plugin 函数级引用
+3. 状态：action 改 + emit；新增 hook 订阅
+4. 设置键：加迁移
+5. `npm run tsc` + `npm run lint` + `npm run build-test`；动原生加 `assembleDebug`；最后真机实测
 
-## Cross-references
-- Mechanisms: `ARCHITECTURE.md`, `DATA_FLOW.md`
-- Where things live: `MODULES.md`
-- External endpoints: `API.md`
+## 交叉引用
+- 机制：`ARCHITECTURE.md`、`DATA_FLOW.md`
+- 位置：`MODULES.md`
+- 构建/运行：`DEVELOPMENT.md`

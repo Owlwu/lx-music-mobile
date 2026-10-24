@@ -13,13 +13,6 @@ const playInfoStorageKey = storageDataPrefix.playInfo
 const userListKey = storageDataPrefix.userList
 const viewPrevStateKey = storageDataPrefix.viewPrevState
 const listScrollPositionKey = storageDataPrefix.listScrollPosition
-const listUpdateInfoKey = storageDataPrefix.listUpdateInfo
-const ignoreVersionKey = storageDataPrefix.ignoreVersion
-const ignoreVersionFailTipTimeKey = storageDataPrefix.ignoreVersionFailTipTimeKey
-const searchSettingKey = storageDataPrefix.searchSetting
-const searchHistoryListKey = storageDataPrefix.searchHistoryList
-const songListSettingKey = storageDataPrefix.songListSetting
-const leaderboardSettingKey = storageDataPrefix.leaderboardSetting
 const listPrevSelectIdKey = storageDataPrefix.listPrevSelectId
 const syncAuthKeyPrefix = storageDataPrefix.syncAuthKey
 const syncHostPrefix = storageDataPrefix.syncHost
@@ -35,27 +28,10 @@ const selectedManagedFolderPrefix = storageDataPrefix.selectedManagedFolder
 
 let listPosition: LX.List.ListPositionInfo
 let listPrevSelectId: string
-let listUpdateInfo: LX.List.ListUpdateInfo
 
-let searchSetting: typeof DEFAULT_SETTING['search']
-let songListSetting: typeof DEFAULT_SETTING['songList']
-let leaderboardSetting: typeof DEFAULT_SETTING['leaderboard']
-let searchHistoryList: string[]
 
 const saveListPositionThrottle = throttle(() => {
   void saveData(listScrollPositionKey, listPosition)
-}, 1000)
-const saveSearchSettingThrottle = throttle(() => {
-  void saveData(searchSettingKey, searchSetting)
-}, 1000)
-const saveSearchHistoryThrottle = throttle(() => {
-  void saveData(searchHistoryListKey, searchHistoryList)
-}, 1000)
-const saveSongListSettingThrottle = throttle(() => {
-  void saveData(songListSettingKey, songListSetting)
-}, 1000)
-const saveLeaderboardSettingThrottle = throttle(() => {
-  void saveData(leaderboardSettingKey, leaderboardSetting)
 }, 1000)
 const saveViewPrevStateThrottle = throttle((state) => {
   void saveData(viewPrevStateKey, state)
@@ -114,88 +90,6 @@ export const saveListPrevSelectId = (id: string) => {
   saveListPrevSelectIdThrottle()
 }
 
-const saveListUpdateInfoThrottle = throttle(() => {
-  void saveData(listUpdateInfoKey, listUpdateInfo)
-}, 1000)
-
-const initListUpdateInfo = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  listUpdateInfo ??= await getData(listUpdateInfoKey) ?? {}
-}
-export const getListUpdateInfo = async() => {
-  await initListUpdateInfo()
-  return listUpdateInfo
-}
-export const saveListUpdateInfo = async(info: LX.List.ListUpdateInfo) => {
-  await initListUpdateInfo()
-  listUpdateInfo = info
-  saveListUpdateInfoThrottle()
-}
-export const setListAutoUpdate = async(id: string, enable: boolean) => {
-  await initListUpdateInfo()
-  const targetInfo = listUpdateInfo[id] ?? { updateTime: 0, isAutoUpdate: false }
-  targetInfo.isAutoUpdate = enable
-  listUpdateInfo[id] = targetInfo
-  saveListUpdateInfoThrottle()
-}
-export const setListUpdateTime = async(id: string, time: number) => {
-  await initListUpdateInfo()
-  const targetInfo = listUpdateInfo[id] ?? { updateTime: 0, isAutoUpdate: false }
-  targetInfo.updateTime = time
-  listUpdateInfo[id] = targetInfo
-  saveListUpdateInfoThrottle()
-}
-// export const setListUpdateInfo = (id, { updateTime, isAutoUpdate }) => {
-//   listUpdateInfo[id] = { updateTime, isAutoUpdate }
-//   saveListUpdateInfo()
-// }
-export const removeListUpdateInfo = async(id: string) => {
-  await initListUpdateInfo()
-  delete listUpdateInfo[id]
-  saveListUpdateInfoThrottle()
-}
-export const overwriteListUpdateInfo = async(ids: string[]) => {
-  await initListUpdateInfo()
-  const removedIds = []
-  for (const id of Object.keys(listUpdateInfo)) {
-    if (ids.includes(id)) continue
-    removedIds.push(id)
-  }
-  for (const id of removedIds) delete listUpdateInfo[id]
-  saveListUpdateInfoThrottle()
-}
-
-let ignoreVersion: string | null
-export const saveIgnoreVersion = (version: string | null) => {
-  ignoreVersion = version
-  if (version == null) {
-    void removeData(ignoreVersionKey)
-  } else {
-    void saveData(ignoreVersionKey, version)
-  }
-}
-// 获取忽略更新的版本号
-export const getIgnoreVersion = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  if (ignoreVersion === undefined) ignoreVersion = (await getData<string | null>(ignoreVersionKey)) ?? null
-  return ignoreVersion
-}
-
-let ignoreVersionFailTipTime: number | null
-export const saveIgnoreVersionFailTipTime = (time: number | null) => {
-  ignoreVersionFailTipTime = time
-  if (time == null) {
-    void removeData(ignoreVersionFailTipTimeKey)
-  } else {
-    void saveData(ignoreVersionFailTipTimeKey, time)
-  }
-}
-// 获取忽略更新的版本号
-export const getIgnoreVersionFailTipTime = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  if (ignoreVersionFailTipTime === undefined) ignoreVersionFailTipTime = (await getData<number | null>(ignoreVersionFailTipTimeKey))
-  return ignoreVersionFailTipTime ?? 0
-}
 
 let openStoragePath: string | null = ''
 export const saveOpenStoragePath = async(path: string) => {
@@ -215,56 +109,6 @@ export const getOpenStoragePath = async() => {
     openStoragePath = await getData<string | null>(openStoragePathPrefix)
   }
   return openStoragePath
-}
-
-export const getSearchSetting = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  searchSetting ??= await getData(searchSettingKey) ?? { ...DEFAULT_SETTING.search }
-  return { ...searchSetting }
-}
-export const saveSearchSetting = async(setting: Partial<typeof DEFAULT_SETTING['search']>) => {
-  if (!searchSetting) await getSearchSetting()
-  let requiredSave = false
-  if (setting.source && searchSetting.source != setting.source) requiredSave = true
-  if (setting.type && searchSetting.type != setting.type) requiredSave = true
-  if (setting.temp_source && searchSetting.temp_source != setting.temp_source) requiredSave = true
-
-  if (!requiredSave) return
-  searchSetting = Object.assign(searchSetting, setting)
-  saveSearchSettingThrottle()
-}
-
-export const getSearchHistory = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  searchHistoryList ??= await getData(searchHistoryListKey) ?? []
-  return [...searchHistoryList]
-}
-export const saveSearchHistory = async(historyList: typeof searchHistoryList) => {
-  // if (!searchHistoryList) await getSearchHistory()
-  searchHistoryList = historyList
-  saveSearchHistoryThrottle()
-}
-
-export const getSongListSetting = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  songListSetting ??= await getData(songListSettingKey) ?? { ...DEFAULT_SETTING.songList }
-  return { ...songListSetting }
-}
-export const saveSongListSetting = async(setting: Partial<typeof DEFAULT_SETTING['songList']>) => {
-  if (!songListSetting) await getSongListSetting()
-  songListSetting = Object.assign(songListSetting, setting)
-  saveSongListSettingThrottle()
-}
-
-export const getLeaderboardSetting = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  leaderboardSetting ??= await getData(leaderboardSettingKey) ?? { ...DEFAULT_SETTING.leaderboard }
-  return { ...leaderboardSetting }
-}
-export const saveLeaderboardSetting = async(setting: Partial<typeof DEFAULT_SETTING['leaderboard']>) => {
-  if (!leaderboardSetting) await getLeaderboardSetting()
-  leaderboardSetting = Object.assign(leaderboardSetting, setting)
-  saveLeaderboardSettingThrottle()
 }
 
 export const getViewPrevState = async() => {

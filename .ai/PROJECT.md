@@ -1,76 +1,97 @@
-# PROJECT — LX Music Mobile
+# PROJECT — LX Music Mobile（纯本地播放器分支）
 
-## Overview
-- **Name**: lx-music-mobile (LX Music / 洛雪音乐助手)
-- **Purpose**: A music player app that aggregates multiple Chinese music platforms (Kuwo, Kugou, QQ Music, NetEase, Migu) plus local files and user-provided "custom source" scripts.
-- **Version**: 1.8.4 (see `package.json` `version` + `versionCode`)
-- **Repo**: https://github.com/lyswhut/lx-music-mobile
-- **License**: Apache-2.0 (+ a project-specific copyright/data agreement in `README.md` §"项目协议")
+> 知识库入口。路径相对仓库根目录（`lx-music-mobile/`）。配套：`ARCHITECTURE.md`、`MODULES.md`、
+> `DATA_FLOW.md`、`API.md`、`RISKS.md`、`DEVELOPMENT.md`。
 
-## Core features
-- Search music / songlists across multiple online sources; hot search; leaderboard (charts); tip search.
-- Playback of online (streaming URL), local, and downloaded tracks, with lyric display.
-- "My lists" (default / love / temp / user lists), play history ("played list"), "play later" (temp) list, dislike list.
-- Multi-source "toggle source" fallback when a track cannot be resolved from its original source.
-- Custom API source ("user api") — user-supplied JS scripts executed natively to fetch music URLs / lyrics / pics.
-- Optional data sync over a self-hosted sync server (lists + dislike list), plus **local music file sync**:
-  pick folders under a configured music root and exchange the added/deleted audio files (with their `.lrc`)
-  with the paired PC, based on a per-device baseline.
-- Themes, i18n (zh-cn / zh-tw / en-us), font-size scaling, desktop-lyric mode, horizontal/vertical layouts.
-- Auto-update check (Android).
+## 这是什么
 
-## Tech stack
-| Concern | Tech |
+`lx-music-mobile` 是本仓库的分支版本，已从上游「在线音乐聚合播放器」精简为 **纯本地音乐播放器**：
+
+- 播放手机上的本地音频（mp3 / flac / ogg / oga / wav / m4a），读取内嵌/同名歌词与封面
+- 「我的列表」（试听列表、我的收藏、自定义列表）、文件夹/文件导入、导入导出 `.lxmc`
+- 播放详情页（歌词滚动、封面、变速/音量）、横竖屏两套布局、桌面歌词（Android 悬浮窗）
+- 文件管理器「用其他应用打开」音频 → 直接播放（`file://` / `content://`）
+- 与 `lx-music-desktop` 的跨端同步：列表 / 不喜欢列表 / **本地音乐文件同步（musicFile）**
+- 诊断日志体系（`utils/log.ts`、`runtimeLog`、`bootLog`、`stallWatchdog`、`playbackHeartbeat`）
+
+**已移除**（不要找回）：在线音源（kw/kg/tx/wy/mg）、搜索、排行榜、在线歌单与歌单详情、评论、
+自定义音源 userApi（JS + 原生 QuickJS 桥 + Android 包）、版本检查/更新弹窗、内置下载、
+`lxmusic://` 分享协议、换源/音质切换。
+
+## 技术栈
+
+| 关注点 | 技术 |
 | --- | --- |
-| Language | TypeScript (majority) + legacy JavaScript (esp. `src/utils/musicSdk/*`, `src/theme/*`) |
-| UI framework | React 18.2 + **React Native 0.73.11** |
-| Native navigation | `react-native-navigation` 7.39.2 (native stack, NOT react-navigation) |
-| State management | **Custom singleton store** (module singletons + actions + React hooks). NOT Redux (README is outdated; Redux code is commented out in `src/store/Provider/Provider.tsx`). |
-| Eventing | Custom `Event` emitter (`src/event/Event.ts`); global hubs `global.state_event`, `global.app_event`, `global.list_event`, `global.dislike_event` |
-| Audio playback | `react-native-track-player` (fork, `src/plugins/player/*`) |
-| Persistence | `@react-native-async-storage/async-storage` (K/V, chunked) + `react-native-fs` / `react-native-file-system` (files) |
-| Sync | HTTP (auth) + WebSocket (`message2call`) RPC to a self-hosted server |
-| Native modules | Custom Android Java modules (`crypto`, `userApi`/QuickJS, `cache`, `lyric`, `utils`) |
-| Build | Gradle (Android). Metro + Babel + module-resolver (`@` → `./src`) |
+| 语言 | TypeScript 为主（`src/**` 基本全 TS/TSX），少量历史 `.js`（`request.js`、主题、hooks） |
+| UI | React 18.2 + **React Native 0.73.11** |
+| 导航 | `react-native-navigation` 7.39.2（原生栈，**不是** react-navigation） |
+| 状态 | 自定义单例 store（module singleton + action + hook），**没有 Redux**（`store/Provider` 只剩 Theme context） |
+| 事件 | 自研 `Event` 发射器（`src/event/Event.ts`），全局 `state_event` / `app_event` / `list_event` / `dislike_event` |
+| 音频 | `react-native-track-player`（fork，`src/plugins/player/`） |
+| 持久化 | `@react-native-async-storage/async-storage`（分块 K/V，`plugins/storage`）+ `react-native-fs` / `react-native-file-system` |
+| 同步 | HTTP 认证 + WebSocket `message2call` RPC（连接用户自建的 PC 端服务） |
+| 原生模块 | Android Java：`crypto`、`cache`、`lyric`、`utils`、`diagnostics` |
+| 构建 | Gradle（Android）+ Metro/Babel（`@` → `./src`） |
 
-## Platforms
-- **Android 5+** (minSdk 21, targetSdk 29, compileSdk 36). Primary and only actively supported platform.
-- iOS folder exists (`ios/`) but **no plan to support iOS**; many features (user-api native module, scoped storage) are Android-only. Treat iOS as untested/unsupported. `[待确认: iOS buildability]`
+## 平台
 
-## Entry point & startup
-- `index.js` (project root) → imports `./shim` then `./src/app`.
-- `src/app.ts` is the real bootstrap:
-  1. Sets up `global.lx` (`src/config/globalData.ts`), loads font size + window size.
-  2. Listens for native "app launched" event (`src/navigation/regLaunchedEvent.ts`).
-  3. On launch: `src/core/init/index.ts` runs the ordered init (setting → theme → i18n → userApi → apiSource → player service → player → data → common state → sync), then `navigations.pushHomeScreen()`.
+- **Android 5+**（minSdk 21，targetSdk 29，compileSdk 36）。唯一支持平台。
+- `ios/` 目录存在但不维护；Android 专属能力（悬浮窗、文件系统、原生模块）在 iOS 不可用。视为不支持。
 
-## Main directories (all under `src/`)
-- `config/` — settings model & defaults, constants, migration, global runtime object.
-- `core/` — **business logic, no React** (player, music, search, list, songlist, sync, musicFileSync, userApi, apiSource, theme, version, `init/`).
-- `store/` — per-domain singleton state + actions + hooks (`setting`, `player`, `list`, `search`, `theme`, `sync`, `musicFileSync`, `version`, `common`, `dislikeList`, `userApi`, `hotSearch`, `leaderboard`, `songlist`).
-- `event/` — emitter base + state/app/list/dislike event hubs.
-- `plugins/` — `player` (TrackPlayer wrapper), `sync` (client), `storage` (AsyncStorage wrapper).
-- `navigation/` — react-native-navigation setup, screen registry, screen push helpers, deep links.
-- `screens/` — the 4 React screens: `Home`, `PlayDetail`, `SonglistDetail`, `Comment`.
-- `components/` — reusable UI (`player/PlayerBar`, `common/*`, modals, list rows, etc.).
-- `utils/` — helpers; notably `musicSdk/` (per-source API modules), `nativeModules/` (bridges), `data.ts` (persistence), `request.js` (HTTP).
-- `lang/` — i18n JSON + runtime.
-- `theme/` — theme colors/definitions (mostly JS).
-- `types/` — ambient `LX.*` TypeScript declarations (`.d.ts`).
+## 入口与启动
 
-## Commands (see DEVELOPMENT.md for detail)
-- Dev (Android): `npm run dev`
-- Metro: `npm start` / reset cache: `npm run sc`
-- Lint: `npm run lint` / `npm run lint:fix`
-- Build release APK: `npm run pack` (→ `cd android && gradlew.bat assembleRelease`)
-- Theme build: `npm run build:theme`
+- `index.js`（根）→ `./shim` → `./src/app.ts`
+- `src/app.ts`：
+  1. `config/globalData.ts` 建立 `global.lx` 与事件枢纽，读取字号/窗口尺寸
+  2. `navigation/regLaunchedEvent.ts` 监听原生启动事件
+  3. 启动时 `core/init/index.ts` 顺序初始化：setting → theme → i18n → 本地媒体 → player service →
+     player → 数据 → common state → sync → deeplink，然后 `navigations.pushHomeScreen()`
 
-## Cross-references
-- Architecture & layering: `ARCHITECTURE.md`
-- Module map & responsibilities: `MODULES.md`
-- Key workflows (search / play / list / sync): `DATA_FLOW.md`
-- Network & music sources: `API.md`
-- Build/run/test: `DEVELOPMENT.md`
-- Code style: `CONVENTIONS.md`
-- Fragile areas: `RISKS.md`
-- Agent workflow: `AGENT_GUIDE.md`
+## 主要目录
+
+```
+src/
+├─ app.ts                  # 引导入口
+├─ config/                 # 设置模型/默认值、常量、迁移、globalData
+├─ core/                   # 业务逻辑（不含 React）
+│  ├─ music/               # index / local / utils（本地播放资源分发）
+│  ├─ player/              # player playInfo progress playedList tempPlayList volume ...
+│  ├─ init/                # 顺序初始化（common/dataInit/i18n/theme/sync/player/deeplink）
+│  ├─ list.ts lyric.ts dislikeList.ts musicFileSync.ts sync.ts desktopLyric.ts common.ts theme.ts
+├─ store/                  # 单例状态 + action + hook（list/player/setting/sync/musicFileSync/common/dislikeList/theme/Provider）
+├─ event/                  # Event 基类 + state/app/list/dislike 事件
+├─ plugins/                # player（TrackPlayer 封装）、sync（客户端）、storage（AsyncStorage）
+├─ navigation/             # RNN 配置、屏幕注册、push helper、启动事件
+├─ screens/                # Home（Vertical/Horizontal/Views）、PlayDetail
+├─ components/             # player/PlayerBar、common、MetadataEditModal、MusicAddModal、MusicMultiAddModal、SearchTipList
+├─ utils/                  # data/fs/request/log/诊断、localMediaMetadata、listManage、nativeModules、hooks、simplify-chinese
+├─ lang/                   # zh-cn / zh-tw / en-us + i18n 运行时
+├─ theme/                  # 颜色/主题定义（`npm run build:theme` 生成）
+└─ types/                  # 全局 LX.* 类型声明
+android/                   # Gradle 工程 + Java 原生模块（userApi 已删除）
+doc/ docs/                 # 设计文档
+```
+
+## 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `npm run dev` | `react-native run-android --active-arch-only`（构建+安装到设备） |
+| `npm start` / `npm run sc` | Metro / 重置缓存 |
+| `npm run lint` / `lint:fix` | ESLint |
+| `npm run tsc`（= `typecheck`） | `tsc --noEmit` |
+| `npm run build-test` | Metro 打包校验（CI 用） |
+| `npm run pack:android` | `cd android && gradlew.bat assembleRelease` |
+| `npm run pack:android:debug` | `gradlew.bat assembleDebug`（改原生代码后用它验证） |
+
+## 相关项目
+
+- 桌面端：`../lx-music-desktop`（同一 fork 思路；同步服务端在桌面端实现）
+- 上游：`https://github.com/lyswhut/lx-music-mobile`（Apache-2.0）
+
+## 给 agent 的硬规则
+
+- **不要重新引入在线音源/下载/用户脚本**：精简是刻意目标。需要联网能力时只做独立小模块
+  （在线歌词/封面匹配），复用 `utils/request.js` 与现有歌词缓存。
+- 改原生代码（android/）后必须 `gradlew.bat assembleDebug` 验证；只跑 tsc/lint 不够。
+- 交付前：`npm run tsc` + `npm run lint` + `npm run build-test`（改了原生再加 `assembleDebug`）。

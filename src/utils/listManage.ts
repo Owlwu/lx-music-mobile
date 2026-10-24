@@ -4,9 +4,7 @@ import {
   // saveListMusics as saveListMusicsFromStore,
   // removeListMusics as removeListMusicsFromStore,
   overwriteListPosition,
-  overwriteListUpdateInfo,
   removeListPosition,
-  removeListUpdateInfo,
 } from '@/utils/data'
 import { arrPush, arrPushByPosition, arrUnshift } from '@/utils/common'
 import { LIST_IDS } from '@/config/constant'
@@ -132,7 +130,6 @@ export const listDataOverwrite = ({ defaultList, loveList, userList, tempList }:
   const newIds = [LIST_IDS.DEFAULT, LIST_IDS.LOVE, ...userList.map(l => l.id)]
   if (tempList) newIds.push(LIST_IDS.TEMP)
   void overwriteListPosition(newIds)
-  void overwriteListUpdateInfo(newIds)
   return updatedListIds
 }
 
@@ -162,7 +159,6 @@ export const userListsRemove = (ids: string[]) => {
     if (!allMusicList.has(id)) continue
     removeMusicList(id)
     void removeListPosition(id)
-    void removeListUpdateInfo(id)
     changedIds.push(id)
   }
 

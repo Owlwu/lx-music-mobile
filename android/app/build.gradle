@@ -193,7 +193,6 @@ dependencies {
     implementation("com.facebook.react:flipper-integration")
     // implementation "androidx.javascriptengine:javascriptengine:1.0.0-alpha07"
     // implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    implementation 'wang.harlon.quickjs:wrapper-android:2.4.0'
     // Used by DiagnosticsLog to observe react-native-track-player's local event bus.
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 

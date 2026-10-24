@@ -1,149 +1,154 @@
 # ARCHITECTURE
 
-## High-level shape
-A **layered, module-singleton** architecture. There is no Redux. Business logic lives in `src/core` (pure TS, no React). State lives in per-domain singleton objects in `src/store`. React screens/components read state via domain hooks that subscribe to a global event emitter. UI events (button taps) call `core` functions, which mutate singleton state and emit events that re-render subscribed hooks.
+## 高层形态
 
-Key consequence: **data does not flow "down" via props/context** — it flows through **module singletons + `global.state_event`**. Components read from the singleton (`state.*`) and re-render only when the matching `state_event` fires.
+**分层 + 模块单例**架构。没有 Redux。业务逻辑在 `src/core`（纯 TS，无 React），状态在 `src/store`
+的按域单例对象里。React 屏幕/组件通过各域 `hook.ts` 读取状态（hook 订阅全局事件发射器）。
+UI 操作调用 `core` 函数 → 修改单例状态 → 发射事件 → 订阅的 hook 重渲染。
 
-## Layering
+关键结果：**数据不通过 props/context 自上而下流动**，而是走「模块单例 + `global.state_event`」。
+
+## 分层
+
 ```
-Screens / Components (React, src/screens, src/components)
-        |  read via hooks (store/*/hook.ts)      call into core
-        v                                        v
-   store/* (singleton state + actions)     core/* (business logic)
-        |  mutate state, emit                  |  call
-        v                                        v
-   event/* (state/app/list/dislike hubs)  utils/* + plugins/* (musicSdk, player, sync, storage, request)
-                                                     |
-                                                     v
-                                          Native modules (Android Java) + Network + FS/AsyncStorage
+screens / components (React)
+   │ 读: store/*/hook.ts         │ 调: core/*
+   ▼                             ▼
+store/* (单例状态+action)      core/* (业务逻辑)
+   │ mutate + emit               │ 调
+   ▼                             ▼
+event/* (state/app/list/dislike) utils/* + plugins/* (player/sync/storage/request)
+                                 │
+                                 ▼
+                       原生模块(Android Java) / 网络 / FS / AsyncStorage
 ```
 
-## State management pattern (critical to understand)
-Each domain in `src/store/<domain>/` has:
-- `state.ts` — a **module-level singleton** `const state = {...}` (imported by value everywhere; the same object reference is shared).
-- `action.ts` — functions that **mutate** `state` fields and then call `global.state_event.<name>(...)` (and persist via `utils/data.ts` where needed).
-- `hook.ts` — React hooks (`useState` + `useEffect` subscribing to `global.state_event`) that return the current value and re-render on the matching event.
+## 状态管理（必须先理解）
 
-Example (`setting`):
-- Read: `settingState.setting` (import singleton) or `useSetting()` / `useSettingValue('common.langId')`.
-- Write: `core/common.updateSetting({...})` → `settingActions.updateSetting` → mutate + `state_event.configUpdated(keys, setting)`.
+`src/store/<domain>/` 三件套：
+- `state.ts` — **模块级单例对象**（`const state = {...}`），全项目共享同一引用
+- `action.ts` — 修改 `state` 字段后调用 `global.state_event.xxx()`（需要持久化时调 `utils/data.ts`）
+- `hook.ts` — React hooks（`useState` + `useEffect` 订阅事件），返回当前值并在事件触发时重渲染
 
-The emitter (`src/event/Event.ts`) uses `setImmediate` so events are delivered async. `src/event/stateEvent.ts` (`StateEvent`) defines all typed state events. `global.lx`, `global.state_event`, `global.app_event`, `global.list_event`, `global.dislike_event` are created in `src/config/globalData.ts` at import time.
+事件发射器 `src/event/Event.ts` 用 `setImmediate` 异步派发；`src/event/stateEvent.ts` 定义全部类型化事件。
+`global.lx`、`global.state_event`、`global.app_event`、`global.list_event`、`global.dislike_event`
+都在 `src/config/globalData.ts` **import 时**创建。
 
-> When adding a piece of shared data: create/extend a domain's `state.ts`, add an action that mutates + emits, add a `stateEvent.ts` method if it must notify UI, and a hook to read it. Don't invent new global variables without a home.
+> 新增共享数据：在所属域 `state.ts` 加字段 → 加 action（改值 + emit）→ 在 `stateEvent.ts` 加事件 →
+> 加 hook。不要新造全局变量。
 
-## Dependency direction
-- `screens` / `components` → `store` (hooks) + `core` (actions) + `navigation`.
-- `core` → `store` (state+actions) + `utils` (data/musicSdk/request) + `plugins` (player/sync) + `config`.
-- `store` → `config` + `utils` (persist) + `event`.
-- `plugins/player` → `core/player` (for remote-control / event bridging) — **circular by design**; keep it at the function level, not module-eval side effects.
-- `utils` should be leaf (no dependency on `core`/`store`). `musicSdk` is a leaf that uses `request.js`.
-- **Do not** import React components into `core`; `core` must stay UI-free.
+## 依赖方向
 
-## Mermaid — overall
+- `screens/components` → `store`（hook）+ `core`（action）+ `navigation`
+- `core` → `store` + `utils` + `plugins` + `config`
+- `store` → `config` + `utils`（持久化）+ `event`
+- `plugins/player` → `core/player`（遥控/事件桥接，**设计上的循环**，保持函数级引用，避免模块求值副作用）
+- `utils` 应是叶子；`core` 保持无 UI 依赖
+
+## Mermaid — 总体
+
 ```mermaid
 graph TD
   subgraph UI
     Home[Home screen]
     PD[PlayDetail]
-    SL[SonglistDetail]
-    CM[Comment]
     PB[PlayerBar]
   end
-  subgraph NAV [navigation/ react-native-navigation]
+  subgraph NAV[navigation/]
     Reg[registerScreens]
     Nav[navigation.ts push*]
   end
-  subgraph CORE [core/ business logic]
+  subgraph CORE[core/]
     PL[player/player.ts]
-    MUS[music/ index+online+local+download]
-    SR[search/]
+    MUS[music/ index+local]
     LI[list.ts]
-    SYNC[core/sync.ts]
-    INIT[core/init/index.ts]
+    SYNC[sync.ts / musicFileSync.ts]
+    INIT[init/index.ts]
   end
-  subgraph STORE [store/ singletons]
-    Splayer[player/state+action]
-    Ssetting[setting/state+action]
-    Slist[list/state+action]
+  subgraph STORE[store/]
+    Splayer[player]
+    Ssetting[setting]
+    Slist[list]
   end
-  subgraph EVT [event/]
+  subgraph EVT[event/]
     SE[state_event]
     AE[app_event]
     LE[list_event]
   end
-  subgraph PLUGINS [plugins/]
+  subgraph PLUGINS[plugins/]
     TPlayer[player/ TrackPlayer wrapper]
     SyncClient[sync/ client]
     Storage[storage/ AsyncStorage]
   end
-  subgraph UTILS [utils/]
-    MSDK[musicSdk/ kw,kg,tx,wy,mg,xm]
+  subgraph UTILS[utils/]
     Req[request.js]
     Data[data.ts]
+    Media[localMediaMetadata.ts]
   end
-  NATIVE[Native modules: crypto, userApi/QuickJS, cache, lyric, utils]
+  NATIVE[Native modules: crypto, cache, lyric, utils, diagnostics]
 
-  Home --> Splayer
-  PB --> Splayer
-  Home --> Ssetting
+  UI --> STORE
   UI --> CORE
   CORE --> STORE
   STORE -- emit --> SE
   SE -- re-render --> UI
   CORE --> PLUGINS
-  PL -- call --> TPlayer
+  PL --> TPlayer
   TPlayer -- remote events --> AE
-  MUS --> MSDK
-  MSDK --> Req
-  CORE --> Data
+  MUS --> Media
+  MUS --> Data
+  CORE --> Req
   Data --> Storage
   PLUGINS --> NATIVE
   INIT --> CORE
   INIT --> NAV
 ```
 
-## Mermaid — playback control/state
+## Mermaid — 播放状态流
+
 ```mermaid
 graph LR
-  A[User taps play / PlayDetail] --> B[core/player/player.playList|playListById]
+  A[用户点播放] --> B[core/player/player.playList]
   B --> C[setPlayMusicInfo -> playerState + state_event]
   B --> D[handlePlay -> getMusicPlayUrl]
   D --> E[core/music.getMusicUrl]
-  E --> F[musicSdk source.getMusicUrl via apis(source)]
-  F --> G[resolved audio URL]
-  G --> H[plugins/player setResource -> TrackPlayer]
-  H -- PlaybackState event --> I[plugins/player/service.ts]
-  I --> J[global.app_event.playerPlay/pause]
-  J --> K[playerState + state_event.playStateChanged]
-  K --> L[UI PlayerBar / PlayDetail re-render]
+  E --> F[core/music/local: file:// 路径]
+  F --> G[plugins/player setResource -> TrackPlayer]
+  G -- PlaybackState --> H[plugins/player/service.ts]
+  H --> I[global.app_event.playerPlay/pause]
+  I --> J[playerState + state_event.playStateChanged]
+  J --> K[UI PlayerBar / PlayDetail]
 ```
 
-## Cross-platform structure
-- JS/TS code is shared; platform differences handled by `babel.config.js` extension resolution order (`*.android.ts` before `*.ts`, etc.) — you can add `foo.android.ts` / `foo.ios.ts` variants.
-- Android-specific native modules live in `android/app/src/main/java/cn/toside/music/mobile/` (`crypto`, `userApi`, `cache`, `lyric`, `utils`). iOS equivalents are absent.
-- `src/utils/nativeModules/*` wraps `NativeModules`/`NativeEventEmitter` for these.
+## 跨平台结构
 
-## Threads / workers
-- `react-native-track-player` runs the audio engine natively; events cross back via the playback-service bridge (`plugins/player/service.ts`).
-- User API scripts run on a dedicated native `HandlerThread` inside a **QuickJS** engine (`userApi/QuickJS.java`); JS↔script communication is via `sendAction`/`onScriptAction`.
-- Background timers use `react-native-background-timer` (player retry/next delays, user-api request timeout).
-- No JS Worker threads; no web workers.
+- 共享 TS；平台差异靠 `babel.config.js` 的扩展名解析顺序（`foo.android.ts` 优先于 `foo.ts`）。
+  目前 `src` 里以 `isAndroid` / `Platform.OS` 守卫为主，没有实际使用 `.android.ts` 分文件。
+- Android 原生模块在 `android/app/src/main/java/cn/toside/music/mobile/`：
+  `crypto`、`cache`、`lyric`（悬浮歌词）、`utils`、`diagnostics`（`userApi` 已随功能删除）。
+- `src/utils/nativeModules/*` 包装 `NativeModules` / `NativeEventEmitter`。
 
-## Mermaid — sync
+## 线程 / 后台
+
+- `react-native-track-player` 原生播放引擎；事件经 `plugins/player/service.ts` 回传。
+- 后台定时器用 `react-native-background-timer`（重试、下一首延迟、超时退出）。
+- 没有 JS Worker / web worker。
+- 本地文件解析（元数据、封面、歌词）在 `utils/localMediaMetadata.ts`（原生库）+ JS 侧兜底。
+
+## Mermaid — 同步
+
 ```mermaid
 graph LR
-  UI[Settings Sync view] --> CS[core/sync.ts]
+  UI[设置 - 同步] --> CS[core/sync.ts]
   CS --> CC[plugins/sync/client]
-  CC -- HTTP hello/id/auth --> SRV[Sync Server]
+  CC -- HTTP hello/id/auth --> SRV[同步服务端 PC]
   CC -- WebSocket RPC message2call --> SRV
-  CC -- list/dislike actions --> LE[global.list_event / dislike_event]
+  CC -- list/dislike --> LE[global.list_event / dislike_event]
   LE --> DataP[core/list.ts + utils/data.ts]
+  CC -- musicFile --> MF[client/modules/musicFile]
+  MF -- 读写本机文件 --> FS[utils/fs.ts]
 ```
 
-## Cross-references
-- What each directory/file does: `MODULES.md`
-- Step-by-step flows: `DATA_FLOW.md`
-- Network/source details: `API.md`
-- Fragile areas (player, sync, native, storage): `RISKS.md`
+## 与上游关系
+
+已 fork 并精简，**不合并上游**；上游修复按需手工判断（多数与在线功能相关，可跳过）。

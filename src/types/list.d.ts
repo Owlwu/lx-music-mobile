@@ -42,12 +42,7 @@ declare namespace LX {
     }
 
 
-    type SearchHistoryList = string[]
     type ListPositionInfo = Record<string, number>
-    type ListUpdateInfo = Record<string, {
-      updateTime: number
-      isAutoUpdate: boolean
-    }>
 
     type ListSaveType = 'myList'
     interface ListSaveInfo {
