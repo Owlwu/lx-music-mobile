@@ -7,6 +7,7 @@ import { isTempId, isEmpty } from './utils'
 import { exitApp } from '@/core/common'
 import { getCurrentTrackId } from './playList'
 import { pause, play, playNext, playPrev } from '@/core/player/player'
+import { setStatusText } from '@/core/player/playStatus'
 import playerState from '@/store/player/state'
 import { info, warn, error, flush } from '@/utils/runtimeLog'
 import { markEvent } from '@/utils/stallWatchdog'
@@ -32,6 +33,20 @@ const handleExitApp = async(reason: string) => {
   exitApp(reason)
 }
 
+
+// 把 native 侧的 remote-duck 三字段翻译成可读语义。
+// 字段含义来自 ExoPlayback 的映射（media3 1.8.0）：
+//   permanent=true                  → AUDIOFOCUS_LOSS：media3 会放弃焦点，不会自动恢复
+//   permanent=false, ducking=true   → LOSS_TRANSIENT 抑制：GAIN 后自动恢复（不是 0.2 音量 duck）
+//   permanent=false, ducking=false, paused=true → becoming-noisy（拔耳机）等
+//   permanent=false, paused=false   → 抑制结束（GAIN）
+// 注意：真正的 CAN_DUCK（音量 ×0.2）不会发 remote-duck，UI 会一直显示"播放中"。
+const classifyRemoteDuck = ({ permanent, paused, ducking }: { permanent: boolean, paused: boolean, ducking: boolean }) => {
+  if (!paused) return 'focus-regained'
+  if (permanent) return 'focus-lost-permanent'
+  if (ducking) return 'focus-suppressed-transient'
+  return 'audio-becoming-noisy'
+}
 
 const registerPlaybackService = async() => {
   if (isInitialized) {
@@ -76,11 +91,13 @@ const registerPlaybackService = async() => {
     void handleExitApp('Remote Stop')
   })
 
-  // 音频焦点/系统打断（来电、其它 App 抢占、系统降音）。
-  // 这是"突然没有声音"的一条独立成因，而原实现整段被注释掉 —— 完全不可见。
-  // 这里只补日志，不改变任何既有的播放行为（原来的注释代码会 dispatch store action）。
+  // 音频焦点/系统打断（来电、其它 App 抢占、拔耳机、系统降音）。
+  // 字段语义见 classifyRemoteDuck 的注释；这里既补日志，也把"被其它应用占用"
+  // 落到状态栏文案上，避免瞬时抑制被误认为用户手动暂停。
   TrackPlayer.addEventListener(TPEvent.RemoteDuck, async({ permanent, paused, ducking }: any) => {
+    const kind = classifyRemoteDuck({ permanent, paused, ducking })
     info('PLAYBACK', 'remote duck (audio focus changed)', {
+      kind,
       permanent,
       paused,
       ducking,
@@ -88,7 +105,14 @@ const registerPlaybackService = async() => {
       isPlay: playerState.isPlay,
       isTempId: isTempId(),
     })
-    markEvent('playback.remoteDuck', { permanent, paused, ducking })
+    markEvent('playback.remoteDuck', { kind, permanent, paused, ducking })
+    // 恢复时只清掉自己写的文案，避免覆盖"缓冲中"等其它状态。
+    const focusLostText = global.i18n.t('player__audio_focus_lost')
+    if (kind === 'focus-suppressed-transient' || kind === 'focus-lost-permanent') {
+      setStatusText(focusLostText)
+    } else if (kind === 'focus-regained' && playerState.statusText === focusLostText) {
+      setStatusText('')
+    }
     void flush()
   })
 
