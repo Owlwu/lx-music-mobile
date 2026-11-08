@@ -143,7 +143,20 @@ const blobToBuffer = (blob) => {
   })
 }
 
+const httpUrlRxp = /^https?:\/\//i
+
 const fetchData = (url, { timeout = 15000, ...options }) => {
+  // 硬白名单：只允许 http(s)。本地 file:/content: 若走 RN fetch，会被 BlobModule 的
+  // UriHandler 无视 method 地整文件读入，再由 Response.text() 经 FileReaderModule.readAsText
+  // 解码成巨型字符串；大文件 OutOfMemoryError 会杀死 mqt_native_modules 线程，导致
+  // 所有 JS→原生调用永久排队（App 假死/白屏）。本地文件请用 react-native-fs / 原生模块。
+  if (typeof url !== 'string' || !httpUrlRxp.test(url)) {
+    return {
+      request: Promise.reject(new Error('fetchData: 仅支持 http(s) URL')),
+      abort() {},
+    }
+  }
+
   console.log('---start---', url)
 
   const controller = new global.AbortController()
@@ -193,7 +206,23 @@ const fetchData = (url, { timeout = 15000, ...options }) => {
   }
 }
 
+/**
+ * 判断是否为本地文件 URL（file: / content:，大小写不敏感；兼容 file:/ 与 file:// 写法）
+ * @param {string} url
+ * @returns {boolean}
+ */
+export const isLocalFileUrl = (url) => {
+  return typeof url === 'string' && /^(file|content):/i.test(url)
+}
+
 export const checkUrl = async(url, options = {}) => {
+  if (isLocalFileUrl(url)) {
+    // 本地文件 URL 绝不能走 HTTP 探测：RN Android 的 fetch 对非 http(s) URL 会经 BlobModule
+    // 的 UriHandler 把整个文件读入内存，随后 Response.text() 调 FileReaderModule.readAsText
+    // 把文件解码成 Java 字符串；音频大文件（几十 MB 的 FLAC 等）会 OutOfMemoryError，
+    // 该错误逃出 catch(Exception) 后杀死 mqt_native_modules 线程，导致 JS→原生调用永久排队。
+    throw new Error('checkUrl: 本地文件 URL 不做 HTTP 探测')
+  }
   return fetchData(url, { method: 'head', ...options }).request.then(resp => {
     if (resp.statusCode === 200) {
       return Promise.resolve()

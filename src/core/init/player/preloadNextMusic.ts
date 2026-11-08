@@ -1,6 +1,6 @@
 import { getMusicUrl } from '@/core/music'
 import { getNextPlayMusicInfo, resetRandomNextMusicInfo } from '@/core/player/player'
-import { checkUrl } from '@/utils/request'
+import { checkUrl, isLocalFileUrl } from '@/utils/request'
 import playerState from '@/store/player/state'
 import { isCached } from '@/plugins/player/utils'
 import { info, warn, error } from '@/utils/runtimeLog'
@@ -43,7 +43,14 @@ const preloadNextMusicUrl = async(curTime: number) => {
       const url = await getMusicUrl({ musicInfo: info_.musicInfo }).catch(() => '')
       if (url) {
         info('PRELOAD', 'preload url got', { id: info_.musicInfo.id })
-        const [cached, available] = await Promise.all([isCached(url), checkUrl(url).then(() => true).catch(() => false)])
+        // 本地文件绝不能走 checkUrl：RN 的 fetch 对非 http(s) URL 会由 BlobModule 把整个音频
+        // 文件读入内存，再经 FileReaderModule.readAsText 解码成 Java 字符串，大文件会 OOM 并
+        // 杀死原生模块队列线程。本地文件是否存在已由 getMusicUrl 校验（core/music/local.ts →
+        // utils/music.ts），这里直接把 available 视为 true。
+        const availableTask = isLocalFileUrl(url)
+          ? Promise.resolve(true)
+          : checkUrl(url).then(() => true).catch(() => false)
+        const [cached, available] = await Promise.all([isCached(url), availableTask])
         info('PRELOAD', 'preload url check', { id: info_.musicInfo.id, cached, available })
         if (!cached && !available) {
           warn('PRELOAD', 'preload url not cached and not available, refreshing', { id: info_.musicInfo.id })
