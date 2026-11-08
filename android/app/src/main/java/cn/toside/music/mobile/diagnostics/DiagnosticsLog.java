@@ -1508,6 +1508,11 @@ public final class DiagnosticsLog {
     }
   }
 
+  /** UNCAUGHT 最多打印的 cause 链层数（防止极端情况下无限链）。 */
+  private static final int MAX_CAUSE_DEPTH = 8;
+  /** UNCAUGHT 最多打印的堆栈总帧数（控制直写文件量）。 */
+  private static final int MAX_CAUSE_FRAMES = 160;
+
   /**
    * 挂在 RN 队列线程上的未捕获异常钩子：**只记录，然后照常转交**。
    *
@@ -1535,15 +1540,31 @@ public final class DiagnosticsLog {
             + " msg=" + clipTo(message, 180)
             + " threadAlive=" + (thread != null && thread.isAlive() ? 1 : 0));
           if (throwable != null) {
-            StackTraceElement[] frames = throwable.getStackTrace();
-            int limit = frames == null ? 0 : Math.min(frames.length, 40);
-            for (int i = 0; i < limit; i++) {
-              appendLineDirect("UNCAUGHT", "  #" + i + " " + clipTo(String.valueOf(frames[i]), MAX_FRAME_CHARS));
+            // 逐层打印 cause 链：RN 的 JavaMethodWrapper 会把原生模块方法抛出的异常包成
+            // RuntimeException("Could not invoke ...")，真正的异常（如 OutOfMemoryError）藏在
+            // InvocationTargetException 里；只打印一层 cause 会把根因丢掉。
+            Throwable cursor = throwable;
+            int depth = 0;
+            int totalFrames = 0;
+            while (cursor != null && depth < MAX_CAUSE_DEPTH && totalFrames < MAX_CAUSE_FRAMES) {
+              if (depth > 0) {
+                appendLineDirect("UNCAUGHT", "  caused by " + cursor.getClass().getName()
+                  + ": " + clipTo(cursor.getMessage(), 160));
+              }
+              StackTraceElement[] frames = cursor.getStackTrace();
+              int limit = frames == null ? 0 : Math.min(frames.length, depth == 0 ? 40 : 24);
+              String indent = depth == 0 ? "  #" : "    #";
+              for (int i = 0; i < limit && totalFrames < MAX_CAUSE_FRAMES; i++, totalFrames++) {
+                appendLineDirect("UNCAUGHT", indent + i + " " + clipTo(String.valueOf(frames[i]), MAX_FRAME_CHARS));
+              }
+              Throwable next = cursor.getCause();
+              // 自引用 cause 防御
+              if (next == cursor) break;
+              cursor = next;
+              depth++;
             }
-            Throwable cause = throwable.getCause();
-            if (cause != null) {
-              appendLineDirect("UNCAUGHT", "  caused by " + cause.getClass().getName()
-                + ": " + clipTo(cause.getMessage(), 160));
+            if (cursor != null) {
+              appendLineDirect("UNCAUGHT", "  ... cause chain truncated");
             }
           }
           // 能进正常管道就也进一份，便于在 JS 侧日志里看到（线程若已坏则自动失效）
