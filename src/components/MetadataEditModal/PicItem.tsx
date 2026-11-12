@@ -12,11 +12,10 @@ import { BorderWidths } from '@/theme'
 export interface PicItemProps {
   value: string
   label: string
-  onOnlineMatch: () => void
   onChanged: (text: string) => void
 }
 
-export default memo(({ value, label, onOnlineMatch, onChanged }: PicItemProps) => {
+export default memo(({ value, label, onChanged }: PicItemProps) => {
   const theme = useTheme()
   const fileSelectRef = useRef<FileSelectType>(null)
   const handleRemoveFile = useCallback(() => {
@@ -38,9 +37,6 @@ export default memo(({ value, label, onOnlineMatch, onChanged }: PicItemProps) =
         <View style={styles.btns}>
           <TouchableOpacity onPress={handleRemoveFile}>
             <Text size={13} color={theme['c-button-font']}>{global.i18n.t('metadata_edit_modal_form_remove_pic')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onOnlineMatch}>
-            <Text size={13} color={theme['c-button-font']}>{global.i18n.t('metadata_edit_modal_form_match_pic')}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={handleShowSelectFile}>
             <Text size={13} color={theme['c-button-font']}>{global.i18n.t('metadata_edit_modal_form_select_pic')}</Text>

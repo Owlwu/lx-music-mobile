@@ -28,6 +28,7 @@ const defaultSetting: LX.AppSetting = {
   'player.isEnableAudioOffload': true,
   'player.isShowLyricTranslation': false,
   'player.isShowLyricRoma': false,
+  'player.lyricSource': 'embedded',
   'player.isShowNotificationImage': true,
   'player.isS2t': false,
   'player.isShowBluetoothLyric': false,

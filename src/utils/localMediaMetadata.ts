@@ -1,4 +1,4 @@
-import { temporaryDirectoryPath, readDir, unlink, extname, readFile, type FileType } from '@/utils/fs'
+import { temporaryDirectoryPath, readDir, unlink, extname, readFile, existsFile, stat, type FileType } from '@/utils/fs'
 import { readPic as _readPic, readLyric as _readLyric } from 'react-native-local-media-metadata'
 import iconv from 'iconv-lite'
 import { log } from '@/utils/log'
@@ -68,6 +68,58 @@ export const readLyric = async(filePath: string, isReadLrcFile = true): Promise<
     log.warn(`Failed to decode lyric file: ${filePath}\n${error?.message ?? error}`)
   }
   return lyric
+}
+
+/**
+ * 读取音频文件内嵌歌词（不读取外挂 .lrc）
+ * @param filePath 歌曲文件路径
+ */
+export const readEmbeddedLyric = async(filePath: string): Promise<string> => {
+  return _readLyric(filePath, false).catch(() => '')
+}
+
+const decodeLrcBuffer = (data: Buffer): string => {
+  // 新写入的 LRC 均为 UTF-8 无 BOM，先按 UTF-8 解码；出现替换字符时再尝试其它常见编码
+  const utf8 = data.toString('utf8')
+  if (!utf8.includes(replacementChar)) return utf8
+  return decodeLyricBuffer(data) ?? utf8
+}
+
+const readLrcFileDirect = async(lrcPath: string): Promise<string> => {
+  const base64 = await readFile(lrcPath, 'base64')
+  return decodeLrcBuffer(Buffer.from(base64, 'base64'))
+}
+
+/**
+ * 仅读取歌曲同目录同名的外挂 .lrc 文件（不读取内嵌歌词）
+ *
+ * 优先使用原生模块的编码识别逻辑；原生模块读不到、返回乱码或文件为大写 .LRC 时，
+ * 回退到直接读取原始字节并按 UTF-8/常见编码解码。
+ * @param filePath 歌曲文件路径
+ */
+export const readLrcFile = async(filePath: string): Promise<string> => {
+  // 一期只支持真实文件系统路径；content:// 等 URI 无法按同名规则拼出 .lrc
+  if (!filePath || /^[a-z][a-z0-9+.-]*:/i.test(filePath)) return ''
+  const lrcPath = getLrcFilePath(filePath)
+  const upperLrcPath = `${lrcPath.substring(0, lrcPath.length - 4)}.LRC`
+  try {
+    let targetPath = lrcPath
+    if (!(await existsFile(targetPath))) {
+      if (!(await existsFile(upperLrcPath))) return ''
+      targetPath = upperLrcPath
+    }
+    const info = await stat(targetPath).catch(() => null)
+    if (!info || info.size === 0) return ''
+
+    if (targetPath === lrcPath) {
+      const lyric = await _readLyric(filePath, true).catch(() => '')
+      if (lyric && !lyric.includes(replacementChar)) return lyric
+    }
+    return readLrcFileDirect(targetPath)
+  } catch (error: any) {
+    log.warn(`Failed to read lrc file: ${lrcPath}\n${error?.message ?? error}`)
+    return ''
+  }
 }
 
 let cleared = false

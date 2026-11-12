@@ -6,10 +6,8 @@ import { TEMP_FILE_PATH, createStyle, toast } from '@/utils/tools'
 import {
   readMetadata,
   readPic,
-  readLyric,
   writeMetadata,
   writePic,
-  writeLyric,
 } from '@/utils/localMediaMetadata'
 import { useUnmounted } from '@/utils/hooks'
 import MetadataForm, { defaultData, type Metadata, type MetadataFormType } from './MetadataForm'
@@ -43,8 +41,7 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
     void Promise.all([
       readMetadata(filePath),
       readPic(filePath).catch(() => ''),
-      readLyric(filePath, false).catch(() => ''),
-    ]).then(async([_metadata, pic, lyric]) => {
+    ]).then(async([_metadata, pic]) => {
       if (!_metadata) return
       if (isUnmounted.current) return
       metadata.current = {
@@ -53,7 +50,6 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
         albumName: _metadata.albumName,
         pic,
         interval: formatPlayTime2(_metadata.interval),
-        lyric,
       }
       requestAnimationFrame(() => {
         metadataFormRef.current?.setForm(filePath, metadata.current)
@@ -99,10 +95,6 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
         isUpdated ||= true
         await writePic(filePath.current, _metadata.pic)
         if (_metadata.pic.startsWith(TEMP_FILE_PATH)) void unlink(_metadata.pic)
-      }
-      if (_metadata.lyric != metadata.current.lyric) {
-        isUpdated ||= true
-        await writeLyric(filePath.current, _metadata.lyric)
       }
     } catch (err: any) {
       log.error(`save (${filePath.current}) metadata failed: \n${err.message}`)

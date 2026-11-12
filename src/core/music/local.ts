@@ -4,27 +4,27 @@ import {
   getCachedLyricInfo,
 } from './utils'
 import { formatLocalFilePathToUrl, getLocalFilePath } from '@/utils/music'
-import { readLyric, readPic } from '@/utils/localMediaMetadata'
+import { readEmbeddedLyric, readLrcFile, readPic } from '@/utils/localMediaMetadata'
+import settingState from '@/store/setting/state'
 
 
 export const getMusicUrl = async({ musicInfo, isRefresh }: {
   musicInfo: LX.Music.MusicInfo
   isRefresh: boolean
 }): Promise<string> => {
-  const path = await getLocalFilePath(musicInfo as LX.Music.MusicInfoLocal)
+  const path = await getLocalFilePath(musicInfo)
   if (path) return formatLocalFilePathToUrl(path)
 
   throw new Error('本地文件不存在')
 }
 
-export const getPicUrl = async({ musicInfo, listId, isRefresh, skipFilePic }: {
+export const getPicUrl = async({ musicInfo, listId, isRefresh }: {
   musicInfo: LX.Music.MusicInfo
   listId?: string | null
   isRefresh: boolean
-  skipFilePic?: boolean
 }): Promise<string> => {
-  if (!isRefresh && !skipFilePic) {
-    const localInfo = musicInfo as LX.Music.MusicInfoLocal
+  if (!isRefresh) {
+    const localInfo = musicInfo
     let pic = await readPic(localInfo.meta.filePath).catch(() => null)
     if (pic) {
       if (pic.startsWith('/')) pic = formatLocalFilePathToUrl(pic)
@@ -39,7 +39,7 @@ export const getPicUrl = async({ musicInfo, listId, isRefresh, skipFilePic }: {
 
 // 本地歌曲的封面缓存更新（供后续在线匹配封面使用）
 export const updateLocalPic = (listId: string, musicInfo: LX.Music.MusicInfo, url: string) => {
-  (musicInfo as LX.Music.MusicInfoLocal).meta.picUrl = url
+  musicInfo.meta.picUrl = url
   void updateListMusics([{ id: listId, musicInfo }])
 }
 
@@ -91,22 +91,71 @@ export const parseLyric = (lrc: string): LX.Music.LyricInfo => {
   return { lyric, ...parsedInfo }
 }
 
-const getMusicFileLyric = async(filePath: string) => {
-  const lyric = await readLyric(filePath).catch(() => null)
-  if (!lyric) return null
-  return parseLyric(lyric)
+/**
+ * 获取该歌曲的实际歌词来源偏好：
+ * 单曲 meta.lyricSource 优先，未设置时使用全局设置 player.lyricSource（默认内嵌）
+ */
+export const getPreferredLyricSource = (musicInfo: LX.Music.MusicInfoLocal): LX.Music.LyricSource => {
+  return musicInfo.meta.lyricSource ?? settingState.setting['player.lyricSource'] ?? 'embedded'
 }
 
-export const getLyricInfo = async({ musicInfo, isRefresh, skipFileLyric }: {
+/**
+ * 同时读取内嵌歌词与同名 .lrc，并按来源偏好选择；
+ * 所选来源不存在/为空时自动回退另一来源。
+ */
+const readFileLyric = async(musicInfo: LX.Music.MusicInfoLocal): Promise<{
+  lyricInfo: LX.Music.LyricInfo
+  source: LX.Music.LyricSource
+} | null> => {
+  const filePath = musicInfo.meta.filePath
+  if (!filePath) return null
+
+  const [embeddedRaw, lrcRaw] = await Promise.all([
+    readEmbeddedLyric(filePath).catch(() => ''),
+    readLrcFile(filePath).catch(() => ''),
+  ])
+  const embeddedInfo = embeddedRaw.trim() ? parseLyric(embeddedRaw) : null
+  const lrcInfo = lrcRaw.trim() ? parseLyric(lrcRaw) : null
+  const hasEmbedded = !!embeddedInfo?.lyric?.trim()
+  const hasLrc = !!lrcInfo?.lyric?.trim()
+  if (!hasEmbedded && !hasLrc) return null
+
+  const preferred = getPreferredLyricSource(musicInfo)
+  let lyricInfo: LX.Music.LyricInfo
+  let source: LX.Music.LyricSource
+  if (preferred === 'lrc') {
+    if (hasLrc) {
+      lyricInfo = lrcInfo!
+      source = 'lrc'
+    } else {
+      lyricInfo = embeddedInfo!
+      source = 'embedded'
+    }
+  } else {
+    if (hasEmbedded) {
+      lyricInfo = embeddedInfo!
+      source = 'embedded'
+    } else {
+      lyricInfo = lrcInfo!
+      source = 'lrc'
+    }
+  }
+  return { lyricInfo, source }
+}
+
+export const getLyricInfo = async({ musicInfo, isRefresh }: {
   musicInfo: LX.Music.MusicInfo
   isRefresh: boolean
-  skipFileLyric?: boolean
 }): Promise<LX.Player.LyricInfo> => {
-  if (!isRefresh && !skipFileLyric) {
-    // 尝试读取文件内歌词
-    const rawlrcInfo = await getMusicFileLyric((musicInfo as LX.Music.MusicInfoLocal).meta.filePath)
-    if (rawlrcInfo) return buildLyricInfo(rawlrcInfo)
+  // 按来源偏好读取文件歌词（内嵌 / 同名 .lrc），缺失时自动回退
+  const fileLyric = await readFileLyric(musicInfo)
+  if (fileLyric) {
+    const lyricInfo = await buildLyricInfo(fileLyric.lyricInfo)
+    return { ...lyricInfo, source: fileLyric.source }
+  }
 
+  // 已编辑歌词（DB）缓存保持现有优先级：仅在文件歌词不可用时使用
+  if (!isRefresh) {
     const lyricInfo = await getCachedLyricInfo(musicInfo)
     if (lyricInfo?.lyric) return buildLyricInfo(lyricInfo)
   }

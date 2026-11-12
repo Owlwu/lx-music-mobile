@@ -19,6 +19,10 @@ declare global {
 
       interface LyricInfo extends LX.Music.LyricInfo {
         rawlrcInfo: LX.Music.LyricInfo
+        /**
+         * 实际生效的歌词来源；使用已编辑歌词缓存时为空
+         */
+        source?: LX.Music.LyricSource
       }
 
       type PlayMusic = LX.Music.MusicInfo

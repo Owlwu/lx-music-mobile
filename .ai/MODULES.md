@@ -24,6 +24,7 @@
 | `core/music/` | 资源分发：`index.ts`（getMusicUrl/getPicPath/getLyricInfo）、`local.ts`（本地文件/封面/歌词）、`utils.ts`（歌词工具） |
 | `core/list.ts` | 列表 CRUD（内存 + `utils/data.ts` 持久化） |
 | `core/lyric.ts` | 歌词解析/行状态 |
+| `core/mediaMatch/` | 在线歌词匹配：`index.ts`（搜索/取词/应用/来源切换编排）、`validateLyric.ts`（取词有效性校验）、`providers/lrclib.ts`、`providers/qq.ts` |
 | `core/dislikeList.ts` | 不喜欢规则（同步特性保留，入口在设置内） |
 | `core/sync.ts` | 同步客户端编排（连接/断开/状态） |
 | `core/desktopLyric.ts` | 桌面歌词（悬浮窗）控制 |
@@ -96,7 +97,7 @@ data → common state → sync → deeplink。
 | `Home/Horizontal/` | `Aside`、`Header`、`Main`、`Content` |
 | `Home/Views/Mylist/` | 我的列表：`MyList/`（列表管理、导入导出、排序、重命名）、`MusicList/`（歌曲行、右键菜单、搜索、多选） |
 | `Home/Views/Setting/` | 设置：`settings/{Basic,List,Player,LyricDesktop,Sync,Theme,Backup,Other}` + `settings/About.tsx` + `components/` + 横竖布局容器 |
-| `PlayDetail/index.tsx` | 播放详情；`Vertical/`、`Horizontal/` 两套；`components/SettingPopup/`（歌词对齐/字号/进度、音量、倍速） |
+| `PlayDetail/index.tsx` | 播放详情；`Vertical/`、`Horizontal/` 两套；`components/SettingPopup/`（歌词对齐/字号/进度、音量、倍速、歌词来源/恢复原始 LRC） |
 
 ## 8. 组件 —— `src/components/`
 
@@ -105,6 +106,7 @@ data → common state → sync → deeplink。
 | `player/PlayerBar/` | 底部播放条：`Pic`、`Title`、`Progress`、`Status`、控制按钮 | 
 | `common/` | 通用原子组件（`Text`、`Image`、`StatusBar`、`PageContent`、`Slider` 等） |
 | `MetadataEditModal/` | 编辑歌曲元数据（标题/歌手/专辑） |
+| `LyricsMatchModal/` | 在线歌词匹配弹窗：`index.tsx`（搜索/候选/预览/应用）、`CandidateItem.tsx` |
 | `MusicAddModal/`、`MusicMultiAddModal/` | 把歌曲加入列表 |
 | `SearchTipList/` | 列表内搜索提示（本地列表用） |
 
@@ -117,12 +119,14 @@ data → common state → sync → deeplink。
 | `data.ts` | AsyncStorage 之上的持久化门面（列表、视图状态、播放信息、同步配置…） |
 | `fs.ts` | 文件系统操作（SAF/授权、目录选择、读写） |
 | `request.js` | `httpFetch/httpGet`（fetch + AbortController + 后台超时；错误映射到 `message.requestMsg`） |
-| `localMediaMetadata.ts` | 本地音频元数据/封面/歌词读取（原生库） |
+| `localMediaMetadata.ts` | 本地音频元数据/封面/歌词读取（原生库）；`readEmbeddedLyric`/`readLrcFile` 拆分内嵌与同名 .lrc |
+| `lrcFile.ts` | 外挂 LRC 文件规则：`checkLrcMatchablePath`、备份 `.lrc.bak`、临时文件写入、回退、`getLrcState` |
+| `mediaMatch/{normalize,score,query,lrcText}.ts` | 在线歌词匹配纯函数：文本归一化、打分（含伴奏强负信号）、查询变体、LRC 文本生成 |
 | `music.ts` | 本地 MusicInfo 构建、`getLocalFilePath`、`decodeKrc` |
 | `listManage.ts` | 列表内存缓存与操作（overwrite/add/remove/move/position…） |
 | `dislikeManage.ts` | 不喜欢规则内存缓存 |
 | `lrcTools.ts` | LRC 解析/格式化 |
-| `log.ts` / `runtimeLog.ts` / `importLog.ts` / `bootLog.ts` / `diagnostics.ts` / `stallWatchdog.ts` / `playbackHeartbeat.ts` / `errorHandle.ts` | 日志体系：`runtimeLog.ts` 落盘运行日志 + 内存环形缓冲（`log.ts` 是统一入口）；`importLog.ts` 只记导入本地歌曲的失败；`diagnostics.ts` 生成「分享日志」导出内容 |
+| `log.ts` / `runtimeLog.ts` / `importLog.ts` / `bootLog.ts` / `diagnostics.ts` / `stallWatchdog.ts` / `playbackHeartbeat.ts` / `playbackStallGuard.ts` / `errorHandle.ts` | 日志体系：`runtimeLog.ts` 落盘运行日志 + 内存环形缓冲（`log.ts` 是统一入口）；`importLog.ts` 只记导入本地歌曲的失败；`diagnostics.ts` 生成「分享日志」导出内容；`playbackStallGuard.ts` 用原生定时器监控 position 是否前进，卡死时 seek 跳过/自动切下一首 |
 | `tools.ts` | 通用工具：`toast`、`formatMusicName`、`openUrl`、`exitApp`、`isAndroid` 等 |
 | `nativeModules/` | `cache`、`crypto`（+ `cryptoTest`）、`diagnostics`、`lyricDesktop`、`utils` 的 JS 桥 |
 | `hooks/` | `useHorizontalMode`、`useWindowSize`、`usePlayTime`、`useAnimateNumber`、`useLayout` 等 |

@@ -11,11 +11,10 @@ import { createStyle } from '@/utils/tools'
 export interface TextAreaItemProps extends InputProps {
   value: string
   label: string
-  onOnlineMatch?: () => void
   onChanged?: (text: string) => void
 }
 
-export default memo(({ value, label, onOnlineMatch, onChanged, style, ...props }: TextAreaItemProps) => {
+export default memo(({ value, label, onChanged, style, ...props }: TextAreaItemProps) => {
   const theme = useTheme()
   const handleRemove = useCallback(() => {
     onChanged?.('')
@@ -30,9 +29,6 @@ export default memo(({ value, label, onOnlineMatch, onChanged, style, ...props }
             <View style={styles.btns}>
               <TouchableOpacity onPress={handleRemove}>
                 <Text size={13} color={theme['c-button-font']}>{global.i18n.t('metadata_edit_modal_form_remove_lyric')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={onOnlineMatch}>
-                <Text size={13} color={theme['c-button-font']}>{global.i18n.t('metadata_edit_modal_form_match_lyric')}</Text>
               </TouchableOpacity>
             </View>
           ) : null

@@ -13,7 +13,26 @@
 - 解压：`gzip/deflate` 响应体
 - 错误映射到 `src/utils/message.ts` 的 `requestMsg`：`timeout`、`notConnectNetwork`、
   `tooManyRequests`(403/429)、`cancelRequest`、`requestError`、`httpFetchError` 等
-- 当前主要调用者：同步认证（`plugins/sync/client/auth.ts`）、诊断/日志上报（若有）、未来「在线歌词/封面匹配」
+- 当前主要调用者：同步认证（`plugins/sync/client/auth.ts`）、在线歌词匹配（`core/mediaMatch/`）、诊断/日志上报（若有）
+
+### 1.1 在线歌词匹配（`src/core/mediaMatch/`）
+
+- 两段式 provider：`search(query, signal)` 只返回候选元数据；`getLyric(candidate, signal)` 按需取词，
+  取词后校验（时间标签/长度/占位文本），无效返回 `null`。
+- 源顺序固定 `lrclib -> qq`，单源失败静默降级；整体超时 15s、串行且间隔 ≥250ms、关闭弹窗可中止。
+- LRCLIB：
+  - 搜索 `GET https://lrclib.net/api/search?track_name=&artist_name=&album_name=`，0 条时回退 `?q=`；
+  - 取词 `GET https://lrclib.net/api/get/{id}`；
+  - 必须带 `User-Agent: LXMusicLocal/<version> (...)`、`Accept: application/json`；
+  - 429/503 按 `Retry-After` + ≤30% 抖动退避，最多 2 次；响应上限 2MB。
+- QQ（实验性，非官方）：
+  - 搜索 `GET https://c.y.qq.com/soso/fcgi-bin/client_search_cp?format=json&n=10&p=1&w=<kw>&cr=1&g_tk=5381`；
+  - 歌词 `GET https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=<mid>&format=json&nobase64=1&g_tk=5381`，
+    **必须带 `Referer: https://y.qq.com/`**；
+  - HTTP 恒 200、Content-Type 为 text/html，但 body 是 JSON → `res.text()` + `JSON.parse`；
+  - 不带任何登录 Cookie；`code!==0`/占位文本/无有效歌词按失败处理。
+- 隐私：只发送歌名/歌手/专辑/时长（关键字由文件名解析结果生成），不发送文件路径；日志不打印歌词正文。
+- 接口细节与实测证据：仓库根 `docs/online-lyrics-match-design.md` §3、`docs/source/qq-provider.md`。
 
 ## 2. 同步客户端（`src/plugins/sync/`）
 
@@ -80,10 +99,11 @@
 > 对应的读写/清理函数（`getMusicUrl`/`getOtherSource` 等）与「资源缓存」设置页也已移除；
 > 旧版本遗留的这些键不再被读写，也不会自动清理（如需清空可手动清除应用数据）。
 
-## 5. 后续联网能力（尚未实现）
+## 5. 后续联网能力
 
-规划中的「在线匹配歌词 / 封面」建议：
-- 新建 `core/mediaMatch.ts` + 可选原生/JS 请求，复用 `utils/request.js`
-- 结果写回：歌词用 `utils/data.ts` 的 `saveLyric/saveEditedLyric`（键 `@lyric__<id>`）；
-  封面写 `musicInfo.meta.picUrl` 并 `core/list.ts listMusicUpdateInfo` 更新列表
-- 不要把旧的 `core/music/online.ts` 结构复活
+- 在线歌词匹配（已实现）：见 §1.1 与 `core/mediaMatch/`、`utils/lrcFile.ts`、`utils/mediaMatch/`；
+  结果写同名外挂 `.lrc`（不写音频标签），单曲来源偏好写在 `musicInfo.meta.lyricSource`。
+- 封面匹配（尚未实现，规划）：
+  - 复用 `utils/request.js` 取图，封面写 `musicInfo.meta.picUrl` 并 `core/list.ts updateListMusics` 更新列表；
+  - 不写音频文件标签/封面（`writePic` 仅用于用户手动编辑标签）。
+- 不要把旧的 `core/music/online.ts` 结构复活。

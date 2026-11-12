@@ -100,7 +100,7 @@ export default forwardRef<DialogType, DialogProps>(({
   return (
     <Modal onHide={onHide} keyHide={keyHide} bgHide={bgHide} bgColor="rgba(50,50,50,.3)" ref={modalRef}>
       <View style={{ ...styles.centeredView, paddingBottom: keyboardShown ? keyboardHeight : 0 }}>
-        <View style={{ ...styles.modalView, height, backgroundColor: theme['c-content-background'] }} onStartShouldSetResponder={() => true}>
+        <View style={{ ...styles.modalView, maxHeight: height ? undefined : '78%', height, backgroundColor: theme['c-content-background'] }} onStartShouldSetResponder={() => true}>
           <View style={{ ...styles.header, backgroundColor: theme['c-primary-light-100-alpha-100'] }}>
             <Text style={styles.title} size={13} color={theme['c-primary-light-1000']} numberOfLines={1}>{title}</Text>
             {closeBtnComponent}

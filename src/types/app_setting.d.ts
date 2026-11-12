@@ -171,6 +171,11 @@ declare global {
       'player.isShowLyricTranslation': boolean
 
       /**
+       * 全局默认歌词来源（单曲可通过 meta.lyricSource 覆盖）
+       */
+      'player.lyricSource': LX.Music.LyricSource
+
+      /**
        * 是否显示歌词罗马音
        */
       'player.isShowLyricRoma': boolean

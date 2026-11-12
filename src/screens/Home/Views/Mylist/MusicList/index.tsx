@@ -14,6 +14,7 @@ import ListSearchBar, { type ListSearchBarType } from './ListSearchBar'
 import ListMusicSearch, { type ListMusicSearchType } from './ListMusicSearch'
 import MusicPositionModal, { type MusicPositionModalType } from './MusicPositionModal'
 import MetadataEditModal, { type MetadataEditType, type MetadataEditProps } from '@/components/MetadataEditModal'
+import LyricsMatchModal, { type LyricsMatchModalType } from '@/components/LyricsMatchModal'
 
 
 export default () => {
@@ -27,6 +28,7 @@ export default () => {
   const listMusicMultiAddRef = useRef<ListAddMultiType>(null)
   const musicPositionModalRef = useRef<MusicPositionModalType>(null)
   const metadataEditTypeRef = useRef<MetadataEditType>(null)
+  const lyricsMatchRef = useRef<LyricsMatchModalType>(null)
   const listMenuRef = useRef<ListMenuType>(null)
   const layoutHeightRef = useRef<number>(0)
   const isShowMultipleModeBar = useRef(false)
@@ -115,6 +117,10 @@ export default () => {
     if (!selectedInfoRef.current || selectedInfoRef.current.musicInfo.source != 'local') return
     handleUpdateMusicInfo(selectedInfoRef.current.listId, selectedInfoRef.current.musicInfo, info)
   }, [])
+  const handleMatchLyric = useCallback((info: SelectInfo) => {
+    if (info.musicInfo.source != 'local') return
+    lyricsMatchRef.current?.show({ musicInfo: info.musicInfo, listId: info.listId })
+  }, [])
 
 
   return (
@@ -159,12 +165,14 @@ export default () => {
         onAdd={handleAddMusic}
         onMove={handleMoveMusic}
         onEditMetadata={handleEditMetadata}
+        onMatchLyric={handleMatchLyric}
         onChangePosition={info => musicPositionModalRef.current?.show(info)}
       />
       <MetadataEditModal
         ref={metadataEditTypeRef}
         onUpdate={handleUpdateMetadata}
       />
+      <LyricsMatchModal ref={lyricsMatchRef} />
     </View>
   )
 }
