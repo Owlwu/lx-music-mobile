@@ -20,6 +20,7 @@ import {
 } from '@/utils/runtimeLog'
 import { start as startWatchdog, markEvent, getWatchdogSnapshot, noteAppState } from '@/utils/stallWatchdog'
 import { startPlaybackHeartbeat, getHeartbeatSnapshot } from '@/utils/playbackHeartbeat'
+import { startPlaybackStallGuard } from '@/utils/playbackStallGuard'
 import { startNativeJsAckLoop, logToNativeTimeline } from '@/utils/nativeModules/diagnostics'
 
 /**
@@ -63,6 +64,12 @@ startWatchdog({ interval: 5000, stallThreshold: 20000 })
 // 该心跳同时负责：后台时间线、JS 线程被卡住/进程被冻结的证据（心跳 gap）、
 // 以及"状态是 Playing 但进度不前进"的 PLAYBACK_SILENT 检测。
 startPlaybackHeartbeat({ intervalMs: 30000 })
+
+// 原生播放器"进度卡死"看门狗：诊断导出里出现过"position 停在 04:37 不动、
+// 播放器在 BUFFERING↔PLAYING 之间无限抖动、UI 一直显示缓冲中"的现场。
+// 这里用原生定时器（后台也触发）每 2s 采样一次 position，超过 10s 不前进就
+// 先 seek 跳过 5s 尝试恢复，仍不动则自动跳下一首，避免必须手动切歌。
+startPlaybackStallGuard()
 
 // 原生侧存活应答：原生诊断模块据此判断"JS 是否已经无法响应"，
 // 即使用户回到前台发现界面空白，也能从原生日志里读到 JS 何时停止应答。

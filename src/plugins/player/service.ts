@@ -182,7 +182,12 @@ const registerPlaybackService = async() => {
         global.app_event.play()
         break
       case TPState.Buffering:
-        global.app_event.pause()
+        // 缓冲**不是暂停**：这里原来先 `global.app_event.pause()`，会把 UI 置成"已暂停"、
+        // 停掉进度轮询，并在每次重新缓冲时产生一对 pause/play 事件。
+        // 2026-11-12 的诊断日志里，原生播放器在 ~0.58s 的周期内反复 BUFFERING↔PLAYING
+        // （同一位置 277.42s 卡住 60s 以上），于是 UI 每秒闪一次"暂停/播放"，进度轮询被
+        // 反复停掉 —— 用户看到的就是"进度条卡死、按钮乱跳"。
+        // 缓冲只应更新状态文案（playerWaiting 会写"缓冲中"），不改变播放/暂停语义。
         global.app_event.playerWaiting()
         break
       case TPState.Connecting:

@@ -10,6 +10,7 @@ import {
 import { readImportLog, importLogPath } from '@/utils/importLog'
 import { getWatchdogSnapshot, getStallCount, getLastStall } from '@/utils/stallWatchdog'
 import { getHeartbeatSnapshot, resolvePlayerStateName } from '@/utils/playbackHeartbeat'
+import { getPlaybackStallGuardSnapshot } from '@/utils/playbackStallGuard'
 import { readNativeDiagnosticsLog, readNativeEventLog, getNativeDiagnosticsStatus, isNativeDiagnosticsAvailable } from '@/utils/nativeModules/diagnostics'
 import { temporaryDirectoryPath, writeFile } from '@/utils/fs'
 import playerState from '@/store/player/state'
@@ -211,6 +212,8 @@ export const buildFullDiagnostics = async(options?: {
     `lastStall: ${JSON.stringify(getLastStall())}`,
     getWatchdogSnapshot(),
     getHeartbeatSnapshot(),
+    '[PLAYBACK_STALL_GUARD]',
+    getPlaybackStallGuardSnapshot(),
   ].join('\n'))
 
   // ---- 当前进程内存缓冲（含启动时回灌的上一次会话尾部）----

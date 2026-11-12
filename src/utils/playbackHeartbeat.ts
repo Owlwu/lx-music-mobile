@@ -243,7 +243,11 @@ const detectAbnormal = (
   const isPlayingState = stateName == 'Playing' || stateName == 'Buffering' ||
     stateNum == TP_STATE_PLAYING_NUM || stateNum == TP_STATE_BUFFERING_NUM
 
-  if (base.isPlay && isPlayingState && position >= 0) {
+  // 注意：判据里**不能**再要求 `base.isPlay`。
+  // 2026-11-12 的日志显示：原生播放器卡死时会周期性回到 BUFFERING，而 service.ts 原来
+  // 把 BUFFERING 映射成 `app_event.pause()`（isPlay=false），于是 silentSince 每一轮都被
+  // 重置，这条最关键的"显示在播放但进度不动"证据永远不触发。现在只看原生状态 + 位置。
+  if (isPlayingState && position >= 0) {
     if (lastPosition != null && Math.abs(position - lastPosition) < 0.25) {
       if (!silentSince) silentSince = lastPositionAt || now
       const silentFor = now - silentSince
