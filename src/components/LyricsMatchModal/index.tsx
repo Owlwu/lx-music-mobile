@@ -55,6 +55,8 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   const [lyricLoading, setLyricLoading] = useState(false)
   const [preview, setPreview] = useState<string[]>([])
   const [applying, setApplying] = useState(false)
+  // 候选列表实测高度：按内容收缩、最多 resultMaxHeight，避免列表内容把预览/按钮顶出弹窗
+  const [listHeight, setListHeight] = useState(0)
 
   useEffect(() => () => {
     abortRef.current?.abort()
@@ -76,6 +78,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
     setLyricLoading(false)
     setPreview([])
     setApplying(false)
+    setListHeight(0)
   }
 
   const handleHide = () => {
@@ -100,11 +103,14 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
     setLyricUnavailable(false)
     setLyricLoading(false)
     setPreview([])
+    setListHeight(0)
 
     try {
       const result = await searchLyrics({ musicInfo, keyword: searchKeyword, signal: controller.signal })
       if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
       setCandidates(result)
+      // 先按最大高度占位，等列表实测内容高度后再收缩，避免首帧把预览/按钮顶出弹窗
+      setListHeight(result.length ? Math.max(96, Math.round(windowSize.height * 0.32)) : 0)
       setSearchState('success')
     } catch (error: any) {
       if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
@@ -287,7 +293,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
     : false
   const canApply = !!selected && !!fetchedLyric && !lyricLoading && !applying && searchState !== 'loading'
   // 候选列表固定最大高度（约屏幕 32%），避免与预览区互相抢 flex 空间
-  const resultMaxHeight = Math.max(96, Math.round(windowSize.height * 0.32))
+  const resultMaxHeight = Math.max(96, Math.round(windowSize.height * 0.30))
 
   const renderCandidateArea = () => {
     if (searchState === 'loading') {
@@ -306,9 +312,14 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
     }
     return (
       <ScrollView
-        style={[styles.listScroll, { maxHeight: resultMaxHeight }]}
+        style={[styles.listScroll, { maxHeight: resultMaxHeight }, listHeight > 0 ? { height: Math.min(listHeight, resultMaxHeight) } : null]}
         contentContainerStyle={styles.listContent}
         nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={(_, height) => {
+          const next = Math.min(Math.ceil(height), resultMaxHeight)
+          setListHeight(prev => prev === next ? prev : next)
+        }}
       >
         {
           candidates.map(candidate => (
@@ -326,22 +337,26 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
 
   return (
     visible
-      ? <Dialog ref={dialogRef} title={t('lyrics_match_title')} height={'82%'} onHide={handleHide}>
+      ? <Dialog ref={dialogRef} title={t('lyrics_match_title')} height={'78%'} width={'90%'} onHide={handleHide}>
           <View style={styles.content} onStartShouldSetResponder={() => true}>
             <View style={styles.searchRow}>
-              <Input
-                ref={inputRef}
-                value={keyword}
-                onChangeText={setKeyword}
-                placeholder={t('lyrics_match_search_placeholder')}
-                returnKeyType="search"
-                onSubmitEditing={() => { void startSearch(keyword) }}
-                style={{ ...styles.input, backgroundColor: theme['c-primary-input-background'] }}
-                clearBtn
-              />
-              <ButtonPrimary disabled={searchState === 'loading'} onPress={() => { void startSearch(keyword) }}>
-                {t('lyrics_match_search')}
-              </ButtonPrimary>
+              <View style={styles.searchInputWrap}>
+                <Input
+                  ref={inputRef}
+                  value={keyword}
+                  onChangeText={setKeyword}
+                  placeholder={t('lyrics_match_search_placeholder')}
+                  returnKeyType="search"
+                  onSubmitEditing={() => { void startSearch(keyword) }}
+                  style={{ ...styles.input, backgroundColor: theme['c-primary-input-background'] }}
+                  clearBtn
+                />
+              </View>
+              <View style={styles.searchBtnWrap}>
+                <ButtonPrimary disabled={searchState === 'loading'} onPress={() => { void startSearch(keyword) }}>
+                  {t('lyrics_match_search')}
+                </ButtonPrimary>
+              </View>
             </View>
             {isSuspectInstrumental ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_suspect_instrumental')}</Text> : null}
             <View style={styles.resultHeader}>
@@ -350,6 +365,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
             <View style={styles.candidateArea}>
               {renderCandidateArea()}
             </View>
+            <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
             <View style={styles.previewArea}>
               <Text size={12} color={theme['c-font-label']}>{t('lyrics_match_preview')}</Text>
               {selected?.instrumental
@@ -367,7 +383,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
                     })}
                   </Text>
                 : null}
-              <ScrollView style={styles.previewScroll} contentContainerStyle={styles.previewContent} nestedScrollEnabled>
+              <ScrollView style={styles.previewScroll} contentContainerStyle={styles.previewContent} nestedScrollEnabled showsVerticalScrollIndicator={false}>
                 {
                   lyricLoading
                     ? <Loading size={14} label={t('lyrics_match_lyric_loading')} />
@@ -397,16 +413,32 @@ const styles = createStyle({
   content: {
     flex: 1,
     flexDirection: 'column',
+    justifyContent: 'flex-start',
+    overflow: 'hidden',
     paddingLeft: 12,
     paddingRight: 12,
     paddingTop: 10,
-    paddingBottom: 12,
+    paddingBottom: 56,
   },
   searchRow: {
     flexGrow: 0,
     flexShrink: 0,
+    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  searchInputWrap: {
+    flexGrow: 1,
+    flexShrink: 1,
+    height: 36,
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  searchBtnWrap: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 36,
+    justifyContent: 'center',
   },
   input: {
     flexGrow: 1,
@@ -439,12 +471,19 @@ const styles = createStyle({
     paddingVertical: 18,
   },
   previewArea: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
     minHeight: 0,
+    marginTop: 6,
+  },
+  divider: {
+    height: 1,
     marginTop: 8,
   },
   previewScroll: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     minHeight: 0,
     marginTop: 2,
   },
@@ -455,12 +494,13 @@ const styles = createStyle({
     marginTop: 2,
   },
   footer: {
-    flexGrow: 0,
-    flexShrink: 0,
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 10,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 8,
   },
   footerBtn: {
     paddingHorizontal: 10,
