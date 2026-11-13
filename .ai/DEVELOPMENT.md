@@ -45,6 +45,7 @@ Metro 按扩展名顺序解析平台文件（`babel.config.js` / `metro.config.j
 | `npm run tsc`（= `typecheck`） | `tsc --noEmit` |
 | `npm run build-test` | Metro 打包（能发现悬空 import / 语法错误） |
 | `node tests/cover-match.test.mjs` | 封面匹配纯逻辑/文件规则测试（Node 24 直跑；用 node:fs 适配器驱动真实 `coverFile.ts`） |
+| `node tests/lyrics-translation.test.mjs` | 在线歌词匹配翻译/罗马音扩展段、预览与网易云 provider 测试 |
 | `cd android && gradlew.bat assembleDebug` | 原生改动后的编译验证 |
 
 ESLint 配置：`.eslintrc.cjs`（standard + standard-with-typescript + react + react-hooks）。

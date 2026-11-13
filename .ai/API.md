@@ -19,8 +19,8 @@
 ### 1.1 在线歌词匹配（`src/core/mediaMatch/`）
 
 - 两段式 provider：`search(query, signal)` 只返回候选元数据；`getLyric(candidate, signal)` 按需取词，
-  取词后校验（时间标签/长度/占位文本），无效返回 `null`。
-- 源顺序固定 `lrclib -> qq`，单源失败静默降级；整体超时 15s、串行且间隔 ≥250ms、关闭弹窗可中止。
+  取词后校验（时间标签/长度/占位文本），无效返回 `null`；netease 的取词结果额外带行级中文翻译/罗马音。
+- 源顺序固定 `lrclib -> qq -> netease`，单源失败静默降级；整体超时 20s、串行且间隔 ≥250–300ms、关闭弹窗可中止。
 - LRCLIB：
   - 搜索 `GET https://lrclib.net/api/search?track_name=&artist_name=&album_name=`，0 条时回退 `?q=`；
   - 取词 `GET https://lrclib.net/api/get/{id}`；
@@ -32,8 +32,17 @@
     **必须带 `Referer: https://y.qq.com/`**；
   - HTTP 恒 200、Content-Type 为 text/html，但 body 是 JSON → `res.text()` + `JSON.parse`；
   - 不带任何登录 Cookie；`code!==0`/占位文本/无有效歌词按失败处理。
+- 网易云（第三方非官方、无 key）：
+  - 搜索 `GET https://music.163.com/api/search/get/web?csrf_token=&s=<kw>&type=1&offset=0&limit=10`；
+  - 取词 `GET https://music.163.com/api/song/lyric?id=<id>&lv=-1&kv=-1&tv=-1&rv=-1`；
+  - `tlyric.lyric` → 中文翻译、`romalrc`（回退 `yromalrc`）→ 罗马音；只保留时间轴行（去 `//`/元信息），
+    无主歌词/`nolyric`/`uncollected`/`code!==200` → 降级；
+  - 必须带桌面 UA + `Referer: https://music.163.com/`、不发送 Cookie；串行 ≥300ms、10s 超时、4MB 上限。
+- 应用写盘：主歌词 + 可选扩展段 `[awlrc:lrc:<b64>,tlrc:<b64>,rlrc:<b64>]` 写入同名 `.lrc`（不写音频）；
+  无翻译/罗马音时输出与旧版一致。
 - 隐私：只发送歌名/歌手/专辑/时长（关键字由文件名解析结果生成），不发送文件路径；日志不打印歌词正文。
-- 接口细节与实测证据：仓库根 `docs/online-lyrics-match-design.md` §3、`docs/source/qq-provider.md`。
+- 接口细节与实测证据：仓库根 `docs/online-lyrics-match-design.md` §3、`docs/source/qq-provider.md`、
+  `docs/phase4-handoff.md`。
 
 ## 2. 同步客户端（`src/plugins/sync/`）
 
