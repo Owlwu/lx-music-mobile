@@ -10,7 +10,7 @@ declare namespace LX {
     /**
      * 在线歌词匹配数据源
      */
-    type LyricsSource = 'lrclib' | 'qq'
+    type LyricsSource = 'lrclib' | 'qq' | 'netease'
 
     interface MusicInfoMeta {
       songId: string | number // 歌曲ID（本地歌曲为文件路径）
@@ -84,10 +84,27 @@ declare namespace LX {
       /** 0..1，见设计 §2.4 */
       score: number
       /**
+       * 取词后是否有中文翻译/罗马音（netease 源；搜索阶段未知时不设置）
+       */
+      hasTranslation?: boolean
+      hasRomaji?: boolean
+      /**
        * 仅 provider 内部缓存用，不跨 IPC 传递；
        * 应用/预览时应通过 provider 的 getLyric 取词。
        */
       lyric?: string
+    }
+
+    /**
+     * 在线歌词取词结果（netease 源可带行级翻译/罗马音）
+     */
+    interface LyricResult {
+      lyric: string
+      isSynced: boolean
+      /** 行级中文翻译；空字符串表示无 */
+      tlyric?: string
+      /** 行级罗马音；空字符串表示无 */
+      rlyric?: string
     }
 
     /**

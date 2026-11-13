@@ -16,7 +16,11 @@ export default memo(({ candidate, selected, onPress }: CandidateItemProps) => {
   const theme = useTheme()
   const t = useI18n()
 
-  const sourceLabel = candidate.source === 'qq' ? t('lyrics_match_source_qq') : t('lyrics_match_source_lrclib')
+  const sourceLabel = candidate.source === 'qq'
+    ? t('lyrics_match_source_qq')
+    : candidate.source === 'netease'
+      ? t('lyrics_match_source_netease')
+      : t('lyrics_match_source_lrclib')
   const durationText = candidate.durationSec == null ? '' : formatPlayTime2(candidate.durationSec)
 
   return (

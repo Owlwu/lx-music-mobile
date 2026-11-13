@@ -13,7 +13,7 @@ import { confirmDialog, createStyle, toast } from '@/utils/tools'
 import { useUnmounted, useWindowSize } from '@/utils/hooks'
 import { existsFile } from '@/utils/fs'
 import { applyLrcToMusic, getCandidateLyric, searchLyrics, updateMusicLyricSource } from '@/core/mediaMatch'
-import { getLyricPreviewLines } from '@/utils/mediaMatch/lrcText'
+import { getLyricPreviewEntries, sanitizeExtendedLyric, type LyricPreviewEntry } from '@/utils/mediaMatch/lrcText'
 import { getFileStem, isInstrumentalName, parseIntervalToSec } from '@/utils/mediaMatch/query'
 import { checkLrcMatchablePath, LrcFileError } from '@/utils/lrcFile'
 import { formatPlayTime2 } from '@/utils/common'
@@ -25,6 +25,8 @@ type SearchState = 'idle' | 'loading' | 'success' | 'error'
 interface FetchedLyric {
   lyric: string
   isSynced: boolean
+  tlyric?: string
+  rlyric?: string
 }
 
 export interface LyricsMatchModalType {
@@ -53,7 +55,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   const [fetchedLyric, setFetchedLyric] = useState<FetchedLyric | null>(null)
   const [lyricUnavailable, setLyricUnavailable] = useState(false)
   const [lyricLoading, setLyricLoading] = useState(false)
-  const [preview, setPreview] = useState<string[]>([])
+  const [preview, setPreview] = useState<LyricPreviewEntry[]>([])
   const [applying, setApplying] = useState(false)
   // 候选列表实测高度：按内容收缩、最多 resultMaxHeight，避免列表内容把预览/按钮顶出弹窗
   const [listHeight, setListHeight] = useState(0)
@@ -122,13 +124,13 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   const fetchLyric = async(candidate: LX.Music.LyricsCandidate, signal: AbortSignal): Promise<FetchedLyric | null> => {
     const result = await getCandidateLyric(candidate, signal)
     if (!result) return null
-    return { lyric: result.lyric, isSynced: result.isSynced }
+    return { lyric: result.lyric, isSynced: result.isSynced, tlyric: result.tlyric, rlyric: result.rlyric }
   }
 
   const applyFetchedLyric = (info: FetchedLyric | null) => {
     setFetchedLyric(info)
     setLyricUnavailable(info == null)
-    setPreview(info ? getLyricPreviewLines(info.lyric) : [])
+    setPreview(info ? getLyricPreviewEntries(info.lyric, info.tlyric, info.rlyric) : [])
     setLyricLoading(false)
   }
 
@@ -292,6 +294,8 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
     ? isInstrumentalName(musicInfo.name) || isInstrumentalName(getFileStem(musicInfo.meta.filePath))
     : false
   const canApply = !!selected && !!fetchedLyric && !lyricLoading && !applying && searchState !== 'loading'
+  const hasTranslation = !!sanitizeExtendedLyric(fetchedLyric?.tlyric)
+  const hasRomaji = !!sanitizeExtendedLyric(fetchedLyric?.rlyric)
   // 候选列表固定最大高度（约屏幕 32%），避免与预览区互相抢 flex 空间
   const resultMaxHeight = Math.max(96, Math.round(windowSize.height * 0.30))
 
@@ -367,7 +371,11 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
             </View>
             <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
             <View style={styles.previewArea}>
-              <Text size={12} color={theme['c-font-label']}>{t('lyrics_match_preview')}</Text>
+              <View style={styles.previewHeader}>
+                <Text size={12} color={theme['c-font-label']}>{t('lyrics_match_preview')}</Text>
+                {hasTranslation ? <Text size={11} color={theme['c-font-label']} style={styles.previewTag}>{t('lyrics_match_translation_available')}</Text> : null}
+                {hasRomaji ? <Text size={11} color={theme['c-font-label']} style={styles.previewTag}>{t('lyrics_match_roma_available')}</Text> : null}
+              </View>
               {selected?.instrumental
                 ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_inst_warning')}</Text>
                 : null}
@@ -390,7 +398,14 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
                     : lyricUnavailable
                       ? <Text size={12} color={theme['c-primary-font']}>{t('lyrics_match_no_lyric')}</Text>
                       : preview.length
-                        ? <Text size={12} selectable>{preview.join('\n')}</Text>
+                        ? preview.map((entry, index) => (
+                            <Text
+                              key={index}
+                              size={entry.type === 'main' ? 12 : 11}
+                              color={entry.type === 'main' ? undefined : theme['c-font-label']}
+                              selectable
+                            >{entry.text}</Text>
+                        ))
                         : <Text size={12} color={theme['c-font-label']}>{selected ? t('lyrics_match_preview_empty') : t('lyrics_match_select_tip')}</Text>
                 }
               </ScrollView>
@@ -476,6 +491,14 @@ const styles = createStyle({
     flexBasis: 0,
     minHeight: 0,
     marginTop: 6,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  previewTag: {
+    opacity: 0.85,
   },
   divider: {
     height: 1,

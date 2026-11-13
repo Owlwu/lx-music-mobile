@@ -1,5 +1,5 @@
 const defaultSetting: LX.AppSetting = {
-  version: '2.0',
+  version: '2.1',
   'common.isAutoTheme': false,
   'common.langId': null,
   'common.sourceNameType': 'alias',
@@ -26,7 +26,7 @@ const defaultSetting: LX.AppSetting = {
   'player.isAutoCleanPlayedList': false,
   'player.isHandleAudioFocus': true,
   'player.isEnableAudioOffload': true,
-  'player.isShowLyricTranslation': false,
+  'player.isShowLyricTranslation': true,
   'player.isShowLyricRoma': false,
   'player.lyricSource': 'embedded',
   'player.isShowNotificationImage': true,

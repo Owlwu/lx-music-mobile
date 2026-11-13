@@ -44,5 +44,11 @@ export default (setting: any): Partial<LX.AppSetting> => {
     setting['theme.id'] = setting.themeId
   }
 
+  // 契约 §5：Phase 4 起默认打开中文翻译（罗马音保持默认关）；覆盖老用户已存的 false
+  if (compareVer(setting.version as string, '2.1') < 0) {
+    setting['player.isShowLyricTranslation'] = true
+    setting.version = '2.1'
+  }
+
   return setting
 }

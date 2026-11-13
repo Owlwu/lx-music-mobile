@@ -12,19 +12,20 @@ import { rollbackLrcFile, writeLrcFile, type LrcRollbackResult, type LrcWriteRes
 import { log } from '@/utils/log'
 
 import * as lrclib from './providers/lrclib'
+import * as netease from './providers/netease'
 import * as qq from './providers/qq'
 
-// 整体超时 15s
-const OVERALL_TIMEOUT = 15000
+// 整体超时 20s（给第三源 netease 留余量，仍可被弹窗关闭 abort）
+const OVERALL_TIMEOUT = 20000
 
 interface LyricsProvider {
   id: LX.Music.LyricsSource
   search: (query: LX.Music.MatchQuery, signal?: AbortSignal) => Promise<LX.Music.LyricsCandidate[]>
-  getLyric: (candidate: LX.Music.LyricsCandidate, signal?: AbortSignal) => Promise<{ lyric: string, isSynced: boolean } | null>
+  getLyric: (candidate: LX.Music.LyricsCandidate, signal?: AbortSignal) => Promise<LX.Music.LyricResult | null>
 }
 
-// 源启用顺序固定 lrclib -> qq；QQ 为实验性源，失败自动跳过
-const providers: LyricsProvider[] = [lrclib, qq]
+// 源启用顺序固定 lrclib -> qq -> netease；netease 带翻译/罗马音，失败自动跳过
+const providers: LyricsProvider[] = [lrclib, qq, netease]
 
 export interface SearchLyricsOptions {
   musicInfo: LX.Music.MusicInfoLocal
@@ -100,9 +101,9 @@ export const searchLyrics = async({ musicInfo, keyword, signal }: SearchLyricsOp
 }
 
 /**
- * 取候选歌词正文；无效歌词（纯音乐/占位文本/过短）返回 null
+ * 取候选歌词正文（netease 源可带翻译/罗马音）；无效歌词（纯音乐/占位文本/过短）返回 null
  */
-export const getCandidateLyric = async(candidate: LX.Music.LyricsCandidate, signal?: AbortSignal): Promise<{ lyric: string, isSynced: boolean } | null> => {
+export const getCandidateLyric = async(candidate: LX.Music.LyricsCandidate, signal?: AbortSignal): Promise<LX.Music.LyricResult | null> => {
   const provider = providers.find(item => item.id === candidate.source)
   if (!provider) throw new Error(`unknown lyrics source: ${candidate.source}`)
   return provider.getLyric(candidate, signal)
@@ -115,7 +116,7 @@ export const getCandidateLyric = async(candidate: LX.Music.LyricsCandidate, sign
 export const applyLrcToMusic = async({ musicInfo, candidate, lyric: fetchedLyric }: {
   musicInfo: LX.Music.MusicInfoLocal
   candidate: LX.Music.LyricsCandidate
-  lyric?: { lyric: string, isSynced: boolean } | null
+  lyric?: LX.Music.LyricResult | null
 }): Promise<LrcWriteResult> => {
   const result = fetchedLyric ?? await getCandidateLyric(candidate)
   if (!result?.lyric.trim()) throw new Error('no valid lyric')
@@ -125,6 +126,8 @@ export const applyLrcToMusic = async({ musicInfo, candidate, lyric: fetchedLyric
     albumName: musicInfo.meta.albumName || candidate.albumName,
     lyric: result.lyric,
     isSynced: result.isSynced,
+    tlyric: result.tlyric,
+    rlyric: result.rlyric,
   })
   return writeLrcFile(musicInfo.meta.filePath, text)
 }
