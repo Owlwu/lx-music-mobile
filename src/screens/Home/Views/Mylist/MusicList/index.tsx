@@ -15,6 +15,7 @@ import ListMusicSearch, { type ListMusicSearchType } from './ListMusicSearch'
 import MusicPositionModal, { type MusicPositionModalType } from './MusicPositionModal'
 import MetadataEditModal, { type MetadataEditType, type MetadataEditProps } from '@/components/MetadataEditModal'
 import LyricsMatchModal, { type LyricsMatchModalType } from '@/components/LyricsMatchModal'
+import CoverMatchModal, { type CoverMatchModalType } from '@/components/CoverMatchModal'
 
 
 export default () => {
@@ -29,6 +30,7 @@ export default () => {
   const musicPositionModalRef = useRef<MusicPositionModalType>(null)
   const metadataEditTypeRef = useRef<MetadataEditType>(null)
   const lyricsMatchRef = useRef<LyricsMatchModalType>(null)
+  const coverMatchRef = useRef<CoverMatchModalType>(null)
   const listMenuRef = useRef<ListMenuType>(null)
   const layoutHeightRef = useRef<number>(0)
   const isShowMultipleModeBar = useRef(false)
@@ -121,6 +123,10 @@ export default () => {
     if (info.musicInfo.source != 'local') return
     lyricsMatchRef.current?.show({ musicInfo: info.musicInfo, listId: info.listId })
   }, [])
+  const handleMatchCover = useCallback((info: SelectInfo) => {
+    if (info.musicInfo.source != 'local') return
+    coverMatchRef.current?.show({ musicInfo: info.musicInfo, listId: info.listId })
+  }, [])
 
 
   return (
@@ -166,6 +172,7 @@ export default () => {
         onMove={handleMoveMusic}
         onEditMetadata={handleEditMetadata}
         onMatchLyric={handleMatchLyric}
+        onMatchCover={handleMatchCover}
         onChangePosition={info => musicPositionModalRef.current?.show(info)}
       />
       <MetadataEditModal
@@ -173,6 +180,7 @@ export default () => {
         onUpdate={handleUpdateMetadata}
       />
       <LyricsMatchModal ref={lyricsMatchRef} />
+      <CoverMatchModal ref={coverMatchRef} />
     </View>
   )
 }

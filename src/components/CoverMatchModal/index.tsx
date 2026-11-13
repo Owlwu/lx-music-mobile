@@ -1,0 +1,507 @@
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { ScrollView, View } from 'react-native'
+
+import Dialog, { type DialogType } from '@/components/common/Dialog'
+import Text from '@/components/common/Text'
+import Input, { type InputType } from '@/components/common/Input'
+import Button from '@/components/common/Button'
+import ButtonPrimary from '@/components/common/ButtonPrimary'
+import Loading from '@/components/common/Loading'
+import Image from '@/components/common/Image'
+import { useTheme } from '@/store/theme/hook'
+import { useI18n } from '@/lang'
+import { confirmDialog, createStyle, toast } from '@/utils/tools'
+import { useUnmounted, useWindowSize } from '@/utils/hooks'
+import { existsFile } from '@/utils/fs'
+import { applyCoverCandidate, getCoverState, refreshPlayingCover, rollbackCover, searchCoverCandidates } from '@/core/coverMatch'
+import { checkCoverMatchablePath } from '@/utils/coverFile'
+import { getFileStem, isInstrumentalName, parseIntervalToSec } from '@/utils/mediaMatch/query'
+import { formatPlayTime2 } from '@/utils/common'
+import { log } from '@/utils/log'
+import CandidateItem from './CandidateItem'
+
+type SearchState = 'idle' | 'loading' | 'success' | 'error'
+
+const emptyCoverState: LX.Music.CoverState = { imageExists: false, backupExists: false }
+
+export interface CoverMatchModalType {
+  show: (info: { musicInfo: LX.Music.MusicInfo, listId: string }) => void
+}
+
+export default forwardRef<CoverMatchModalType>((props, ref) => {
+  const t = useI18n()
+  const theme = useTheme()
+  const dialogRef = useRef<DialogType>(null)
+  const inputRef = useRef<InputType>(null)
+  const windowSize = useWindowSize()
+  const musicInfoRef = useRef<LX.Music.MusicInfoLocal | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const requestSeq = useRef(0)
+  const coverStateSeq = useRef(0)
+  const isUnmounted = useUnmounted()
+
+  const [visible, setVisible] = useState(false)
+  const [keyword, setKeyword] = useState('')
+  const [searchState, setSearchState] = useState<SearchState>('idle')
+  const [candidates, setCandidates] = useState<LX.Music.CoverCandidate[]>([])
+  const [selected, setSelected] = useState<LX.Music.CoverCandidate | null>(null)
+  const [coverState, setCoverState] = useState<LX.Music.CoverState>(emptyCoverState)
+  const [applying, setApplying] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
+  // 候选列表实测高度：按内容收缩、最多 resultMaxHeight，避免列表内容把预览/按钮顶出弹窗
+  const [listHeight, setListHeight] = useState(0)
+
+  useEffect(() => () => {
+    abortRef.current?.abort()
+  }, [])
+
+  const resetState = () => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    requestSeq.current++
+    coverStateSeq.current++
+    setSearchState('idle')
+    setCandidates([])
+    setSelected(null)
+    setCoverState(emptyCoverState)
+    setApplying(false)
+    setRollingBack(false)
+    setListHeight(0)
+  }
+
+  const handleHide = () => {
+    resetState()
+    setVisible(false)
+  }
+
+  const refreshCoverState = async(musicInfo: LX.Music.MusicInfoLocal) => {
+    const seq = ++coverStateSeq.current
+    let state: LX.Music.CoverState
+    try {
+      state = await getCoverState(musicInfo)
+    } catch (error: any) {
+      log.warn(`get cover state failed: ${error?.message ?? error}`)
+      state = emptyCoverState
+    }
+    if (isUnmounted.current || seq !== coverStateSeq.current) return
+    setCoverState(state)
+  }
+
+  const startSearch = async(searchKeyword?: string) => {
+    const musicInfo = musicInfoRef.current
+    if (!musicInfo) return
+
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const seq = ++requestSeq.current
+    setSearchState('loading')
+    setCandidates([])
+    setSelected(null)
+    setListHeight(0)
+
+    try {
+      const result = await searchCoverCandidates({ musicInfo, keyword: searchKeyword, signal: controller.signal })
+      if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
+      setCandidates(result)
+      // 先按最大高度占位，等列表实测内容高度后再收缩，避免首帧把预览/按钮顶出弹窗
+      setListHeight(result.length ? Math.max(96, Math.round(windowSize.height * 0.32)) : 0)
+      setSearchState('success')
+    } catch (error: any) {
+      if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
+      log.warn(`search cover candidates failed: ${error?.message ?? error}`)
+      setSearchState('error')
+    }
+  }
+
+  const getErrorMessage = (error: any): string => {
+    const code = error?.code
+    switch (code) {
+      case 'permission':
+      case 'no_permission':
+        return t('cover_match_error_permission')
+      case 'no_space':
+      case 'disk_full':
+        return t('cover_match_error_no_space')
+      case 'image_invalid':
+        return t('cover_match_image_invalid')
+      case 'image_too_large':
+        return t('cover_match_image_too_large')
+      case 'download_failed':
+        return t('cover_match_download_failed')
+      default:
+        return t('cover_match_error_other', { message: error?.message ?? String(error) })
+    }
+  }
+
+  const handleApply = async() => {
+    const musicInfo = musicInfoRef.current
+    const candidate = selected
+    if (!musicInfo || !candidate || applying) return
+
+    if (coverState.imageExists) {
+      const confirmed = await confirmDialog({
+        message: t('cover_match_replace_confirm'),
+        confirmButtonText: t('cover_match_apply'),
+      })
+      if (!confirmed) return
+    }
+
+    setApplying(true)
+    try {
+      const result = await applyCoverCandidate({ musicInfo, candidate })
+      const fileName = result.imagePath.substring(result.imagePath.lastIndexOf('/') + 1)
+      toast(t('cover_match_apply_success', { file: fileName }), 'long')
+      await refreshPlayingCover(musicInfo).catch((error: any) => {
+        log.warn(`refresh playing cover failed: ${error?.message ?? error}`)
+      })
+      dialogRef.current?.setVisible(false)
+    } catch (error: any) {
+      log.warn(`apply cover failed: ${error?.message ?? error}`)
+      toast(getErrorMessage(error), 'long')
+    } finally {
+      if (!isUnmounted.current) setApplying(false)
+    }
+  }
+
+  const handleRollback = async() => {
+    const musicInfo = musicInfoRef.current
+    if (!musicInfo || rollingBack) return
+
+    const confirmed = await confirmDialog({
+      message: t('cover_match_rollback_confirm'),
+      confirmButtonText: t('cover_match_rollback'),
+    })
+    if (!confirmed) return
+
+    setRollingBack(true)
+    try {
+      const restored = await rollbackCover(musicInfo)
+      if (restored) {
+        toast(t('cover_match_rollback_success'), 'long')
+      } else {
+        toast(t('cover_match_rollback_none'))
+      }
+      await refreshPlayingCover(musicInfo).catch((error: any) => {
+        log.warn(`refresh playing cover failed: ${error?.message ?? error}`)
+      })
+      if (restored) await refreshCoverState(musicInfo)
+    } catch (error: any) {
+      log.warn(`rollback cover failed: ${error?.message ?? error}`)
+      toast(t('cover_match_rollback_failed', { message: error?.message ?? String(error) }), 'long')
+    } finally {
+      if (!isUnmounted.current) setRollingBack(false)
+    }
+  }
+
+  const open = async(info: { musicInfo: LX.Music.MusicInfo, listId: string }) => {
+    const musicInfo = info.musicInfo
+    if (musicInfo.source != 'local') {
+      toast(t('cover_match_only_local'))
+      return
+    }
+    const pathCheck = checkCoverMatchablePath(musicInfo.meta.filePath)
+    if (pathCheck === 'uri' || pathCheck === 'invalid') {
+      toast(t('cover_match_path_uri'), 'long')
+      return
+    }
+    if (pathCheck === 'app_private') {
+      toast(t('cover_match_path_cache'), 'long')
+      return
+    }
+    if (!(await existsFile(musicInfo.meta.filePath).catch(() => false))) {
+      toast(t('cover_match_file_missing'), 'long')
+      return
+    }
+    if (isUnmounted.current) return
+
+    musicInfoRef.current = musicInfo
+    resetState()
+    const defaultKeyword = `${musicInfo.name}${musicInfo.singer ? ` ${musicInfo.singer}` : ''}`.trim()
+    setKeyword(defaultKeyword)
+    void refreshCoverState(musicInfo)
+
+    if (visible) {
+      dialogRef.current?.setVisible(true)
+      void startSearch(defaultKeyword)
+      return
+    }
+    setVisible(true)
+    requestAnimationFrame(() => {
+      dialogRef.current?.setVisible(true)
+      void startSearch(defaultKeyword)
+    })
+  }
+
+  useImperativeHandle(ref, () => ({
+    show(info) {
+      void open(info)
+    },
+  }))
+
+  const musicInfo = musicInfoRef.current
+  const durationSec = musicInfo ? parseIntervalToSec(musicInfo.interval) : null
+  const durationDiff = selected?.durationSec != null && durationSec != null
+    ? Math.abs(selected.durationSec - durationSec)
+    : null
+  const isSuspectInstrumental = musicInfo
+    ? isInstrumentalName(musicInfo.name) || isInstrumentalName(getFileStem(musicInfo.meta.filePath))
+    : false
+  const selectedInstrumental = isInstrumentalName(selected?.name)
+  const canApply = !!selected && !applying && !rollingBack && searchState !== 'loading'
+  const canRollback = coverState.backupExists && !applying && !rollingBack
+  // 候选列表固定最大高度（约屏幕 30%），避免与预览区互相抢 flex 空间
+  const resultMaxHeight = Math.max(96, Math.round(windowSize.height * 0.30))
+  const previewSize = Math.min(
+    Math.round(windowSize.width * 0.90) - 40,
+    Math.round(windowSize.height * 0.20),
+  )
+
+  const renderCandidateArea = () => {
+    if (searchState === 'loading') {
+      return <View style={styles.center}><Loading size={16} label={t('cover_match_loading')} /></View>
+    }
+    if (searchState === 'error') {
+      return (
+        <View style={styles.center}>
+          <Text size={13} color={theme['c-font-label']}>{t('cover_match_error')}</Text>
+          <ButtonPrimary onPress={() => { void startSearch(keyword) }}>{t('cover_match_retry')}</ButtonPrimary>
+        </View>
+      )
+    }
+    if (searchState === 'success' && !candidates.length) {
+      return <View style={styles.center}><Text size={13} color={theme['c-font-label']}>{t('cover_match_empty')}</Text></View>
+    }
+    return (
+      <ScrollView
+        style={[styles.listScroll, { maxHeight: resultMaxHeight }, listHeight > 0 ? { height: Math.min(listHeight, resultMaxHeight) } : null]}
+        contentContainerStyle={styles.listContent}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={(_, height) => {
+          const next = Math.min(Math.ceil(height), resultMaxHeight)
+          setListHeight(prev => prev === next ? prev : next)
+        }}
+      >
+        {
+          candidates.map(candidate => (
+            <CandidateItem
+              key={`${candidate.source}_${candidate.id}`}
+              candidate={candidate}
+              selected={selected?.source === candidate.source && selected.id === candidate.id}
+              onPress={setSelected}
+            />
+          ))
+        }
+      </ScrollView>
+    )
+  }
+
+  return (
+    visible
+      ? <Dialog ref={dialogRef} title={t('cover_match_title')} height={'78%'} width={'90%'} onHide={handleHide}>
+          <View style={styles.content} onStartShouldSetResponder={() => true}>
+            <View style={styles.searchRow}>
+              <View style={styles.searchInputWrap}>
+                <Input
+                  ref={inputRef}
+                  value={keyword}
+                  onChangeText={setKeyword}
+                  placeholder={t('cover_match_search_placeholder')}
+                  returnKeyType="search"
+                  onSubmitEditing={() => { void startSearch(keyword) }}
+                  style={{ ...styles.input, backgroundColor: theme['c-primary-input-background'] }}
+                  clearBtn
+                />
+              </View>
+              <View style={styles.searchBtnWrap}>
+                <ButtonPrimary disabled={searchState === 'loading'} onPress={() => { void startSearch(keyword) }}>
+                  {t('cover_match_search')}
+                </ButtonPrimary>
+              </View>
+            </View>
+            {isSuspectInstrumental ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('cover_match_suspect_instrumental')}</Text> : null}
+            <View style={styles.resultHeader}>
+              <Text size={12} color={theme['c-font-label']}>{t('cover_match_result_title', { num: candidates.length })}</Text>
+            </View>
+            <View style={styles.candidateArea}>
+              {renderCandidateArea()}
+            </View>
+            <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
+            <View style={styles.previewArea}>
+              <Text size={12} color={theme['c-font-label']}>{t('cover_match_preview')}</Text>
+              {selectedInstrumental
+                ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('cover_match_inst_warning')}</Text>
+                : null}
+              {durationDiff != null && durationDiff > 10
+                ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>
+                    {t('cover_match_duration_diff', {
+                      diff: Math.round(durationDiff),
+                      candidate: formatPlayTime2(selected!.durationSec!),
+                      current: formatPlayTime2(durationSec!),
+                    })}
+                  </Text>
+                : null}
+              <View style={styles.previewContent}>
+                {
+                  selected
+                    ? <Image url={selected.coverUrl} style={{ width: previewSize, height: previewSize, borderRadius: 4 }} resizeMode="contain" />
+                    : <Text size={12} color={theme['c-font-label']}>
+                        {candidates.length ? t('cover_match_select_tip') : t('cover_match_preview_empty')}
+                      </Text>
+                }
+              </View>
+            </View>
+            <View style={styles.footer}>
+              <Text size={11} color={theme['c-font-label']} style={styles.footerTip} numberOfLines={2}>{t('cover_match_apply_tip')}</Text>
+              <View style={styles.footerRow}>
+                <View style={styles.footerLeft}>
+                  {
+                    coverState.backupExists
+                      ? <Button
+                          style={{ ...styles.footerBtn, backgroundColor: theme['c-button-background'] }}
+                          disabled={!canRollback}
+                          onPress={() => { void handleRollback() }}
+                        >
+                          <Text color={theme['c-button-font']}>{rollingBack ? t('cover_match_rolling_back') : t('cover_match_rollback')}</Text>
+                        </Button>
+                      : null
+                  }
+                </View>
+                <View style={styles.footerRight}>
+                  <Button
+                    style={{ ...styles.footerBtn, backgroundColor: theme['c-button-background'] }}
+                    disabled={applying || rollingBack}
+                    onPress={() => { dialogRef.current?.setVisible(false) }}
+                  >
+                    <Text color={theme['c-button-font']}>{t('cancel')}</Text>
+                  </Button>
+                  <ButtonPrimary disabled={!canApply} onPress={() => { void handleApply() }}>
+                    {applying ? t('cover_match_applying') : t('cover_match_apply')}
+                  </ButtonPrimary>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Dialog>
+      : null
+  )
+})
+
+const styles = createStyle({
+  content: {
+    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+    overflow: 'hidden',
+    paddingLeft: 12,
+    paddingRight: 12,
+    paddingTop: 10,
+    paddingBottom: 76,
+  },
+  searchRow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchInputWrap: {
+    flexGrow: 1,
+    flexShrink: 1,
+    height: 36,
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  searchBtnWrap: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 36,
+    justifyContent: 'center',
+  },
+  input: {
+    flexGrow: 1,
+    flexShrink: 1,
+    borderRadius: 4,
+  },
+  resultHeader: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  candidateArea: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  listScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  listContent: {
+    paddingBottom: 2,
+  },
+  center: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+  },
+  previewArea: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minHeight: 0,
+    marginTop: 6,
+  },
+  previewContent: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    marginTop: 8,
+  },
+  hint: {
+    marginTop: 2,
+  },
+  footer: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 8,
+    flexDirection: 'column',
+  },
+  footerTip: {
+    marginBottom: 6,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  footerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  footerBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+})

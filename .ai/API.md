@@ -13,7 +13,8 @@
 - 解压：`gzip/deflate` 响应体
 - 错误映射到 `src/utils/message.ts` 的 `requestMsg`：`timeout`、`notConnectNetwork`、
   `tooManyRequests`(403/429)、`cancelRequest`、`requestError`、`httpFetchError` 等
-- 当前主要调用者：同步认证（`plugins/sync/client/auth.ts`）、在线歌词匹配（`core/mediaMatch/`）、诊断/日志上报（若有）
+- 当前主要调用者：同步认证（`plugins/sync/client/auth.ts`）、在线歌词匹配（`core/mediaMatch/`）、
+  在线封面匹配（`core/coverMatch/`，`binary: true` 取图）、诊断/日志上报（若有）
 
 ### 1.1 在线歌词匹配（`src/core/mediaMatch/`）
 
@@ -103,7 +104,14 @@
 
 - 在线歌词匹配（已实现）：见 §1.1 与 `core/mediaMatch/`、`utils/lrcFile.ts`、`utils/mediaMatch/`；
   结果写同名外挂 `.lrc`（不写音频标签），单曲来源偏好写在 `musicInfo.meta.lyricSource`。
-- 封面匹配（尚未实现，规划）：
-  - 复用 `utils/request.js` 取图，封面写 `musicInfo.meta.picUrl` 并 `core/list.ts updateListMusics` 更新列表；
-  - 不写音频文件标签/封面（`writePic` 仅用于用户手动编辑标签）。
+- 封面匹配（已实现）：见 `core/coverMatch/`、`utils/coverFile.ts`、`utils/coverMatch/{score,image}.ts`、
+  `components/CoverMatchModal/`、`utils/localPathCheck.ts`。
+  - QQ（主源）：复用 `client_search_cp`（n=10）取 `albummid` → `https://y.qq.com/music/photo_new/T002R{500,150}x…M000<albummid>.jpg`；
+    下载必须 `Accept: image/jpeg,image/png`（否则可能返回 webp），并用 albummid 重建 URL 做白名单校验。
+  - iTunes（回退源）：`GET https://itunes.apple.com/search?term=&entity=song&limit=15&country=<jp|us>`（CJK→jp，0 结果换另一 store），
+    `artworkUrl100` 的 `100x100bb`→`600x600bb`；仅接受 `https://*.mzstatic.com/image/thumb/…`。
+  - 两源并行（allSettled，单源失败降级）、统一评分/专辑维度去重/≤20 条；下载 10s 超时、≤8MB、Content-Type + magic 双校验、失败重试 1 次。
+  - 结果写歌曲**同目录同名** `.jpg/.png`（不写音频标签、不改音频），旧图备份 `.bak`（只留第一次）、`.tmp`+rename 原子写；
+    读取链路优先同名图并带 `?v=<mtime>` 击穿图片缓存；应用/回退后刷新当前播放封面（不打断播放）。
+  - 只支持真实文件系统路径；`content://`、App 缓存/私有目录入口拦截提示，不做 SAF 写回。
 - 不要把旧的 `core/music/online.ts` 结构复活。

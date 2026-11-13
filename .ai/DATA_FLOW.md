@@ -58,7 +58,7 @@ UI（PlayerBar / PlayDetail）重渲染；播放进度写 utils/data.ts（节流
 
 | 资源 | 取法 |
 | --- | --- |
-| 封面 | `utils/localMediaMetadata.ts` 内嵌封面；否则同名图片文件；否则主题占位 |
+| 封面 | `core/music/local.ts getPicUrl`：同目录同名 `.jpg`（再 `.png`，URL 带 `?v=<mtime>` 击穿缓存）→ 内嵌封面（`utils/localMediaMetadata.ts`）→ `meta.picUrl`；在线匹配由 `core/coverMatch/` 写入同名图后 `refreshPlayingCover` 刷新当前播放 |
 | 歌词 | 内嵌歌词（ID3 USLT / FLAC LYRICS）优先；否则同名 `.lrc`；支持 `.krc`（`decodeKrc`）；`utils/lrcTools.ts` 解析；已编辑歌词存于 `@lyric__<id>`（raw/edited） |
 | 桌面歌词 | `core/desktopLyric.ts` + 原生 `lyric` 悬浮窗模块 |
 

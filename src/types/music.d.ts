@@ -90,5 +90,52 @@ declare namespace LX {
       lyric?: string
     }
 
+    /**
+     * 在线封面数据源 id
+     */
+    type CoverSource = 'qq' | 'itunes'
+
+    /**
+     * 在线封面候选；同一专辑只保留一条（专辑维度去重）
+     */
+    interface CoverCandidate {
+      source: CoverSource
+      /** 源内唯一 id（QQ albummid / iTunes collectionId） */
+      id: string
+      name: string
+      singer: string
+      albumName: string
+      durationSec: number | null
+      /** 大图（QQ R500 / iTunes 600x600bb） */
+      coverUrl: string
+      /** 缩略图（QQ R150 / iTunes 100x100bb） */
+      thumbnailUrl: string
+      /** 0..1，标题/歌手/时长 + 专辑加分 */
+      score: number
+    }
+
+    /**
+     * 歌曲同目录同名封面 / 备份状态（读取优先 jpg，再 png）
+     */
+    interface CoverState {
+      imagePath?: string
+      imageFormat?: 'jpg' | 'png'
+      imageExists: boolean
+      backupExists: boolean
+      imageSize?: number
+      imageMtime?: number
+    }
+
+    /**
+     * 应用封面后的结果
+     */
+    interface CoverApplyResult {
+      /** 实际写入的同名图片路径 */
+      imagePath: string
+      format: 'jpg' | 'png'
+      /** 本次是否新建了 `.bak` */
+      backupCreated: boolean
+    }
+
   }
 }

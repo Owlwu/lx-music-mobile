@@ -1,15 +1,14 @@
 import {
   copyFile,
   existsFile,
-  privateStorageDirectoryPath,
   readFile,
   rename,
   stat,
-  temporaryDirectoryPath,
   unlink,
   writeFile,
 } from './fs'
 import { log } from './log'
+import { checkWritableLocalPath, type WritablePathCheckResult } from './localPathCheck'
 
 /**
  * 外挂 LRC 文件操作：路径生成、可用性判断、备份/原子写入、回退、状态查询。
@@ -41,7 +40,7 @@ export class LrcFileError extends Error {
   }
 }
 
-export type LrcPathCheckResult = 'ok' | 'invalid' | 'uri' | 'app_private'
+export type LrcPathCheckResult = WritablePathCheckResult
 
 export interface LrcState {
   lrcExists: boolean
@@ -59,24 +58,12 @@ export interface LrcRollbackResult {
   restored: boolean
 }
 
-const uriSchemeRxp = /^[a-z][a-z0-9+.-]*:/i
-
-const isUnderDir = (filePath: string, dir: string): boolean => {
-  if (!dir) return false
-  const normalizedDir = dir.endsWith('/') ? dir : `${dir}/`
-  return filePath === dir || filePath.startsWith(normalizedDir)
-}
-
 /**
  * 只有真实文件系统路径才支持写同名 .lrc。
  * App 缓存/私有目录里的副本、content:// 等 URI 都无法写回用户目录，直接禁用入口。
  */
 export const checkLrcMatchablePath = (filePath?: string | null): LrcPathCheckResult => {
-  if (!filePath) return 'invalid'
-  if (uriSchemeRxp.test(filePath)) return 'uri'
-  if (!filePath.startsWith('/')) return 'invalid'
-  if (isUnderDir(filePath, temporaryDirectoryPath) || isUnderDir(filePath, privateStorageDirectoryPath)) return 'app_private'
-  return 'ok'
+  return checkWritableLocalPath(filePath)
 }
 
 /**

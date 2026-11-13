@@ -5,6 +5,7 @@ import {
 } from './utils'
 import { formatLocalFilePathToUrl, getLocalFilePath } from '@/utils/music'
 import { readEmbeddedLyric, readLrcFile, readPic } from '@/utils/localMediaMetadata'
+import { getCoverImagePathIfExists } from '@/utils/coverFile'
 import settingState from '@/store/setting/state'
 
 
@@ -25,6 +26,12 @@ export const getPicUrl = async({ musicInfo, listId, isRefresh }: {
 }): Promise<string> => {
   if (!isRefresh) {
     const localInfo = musicInfo
+    // 优先同名外挂封面（jpg → png），带 mtime 查询串击穿 Fresco 缓存
+    if (localInfo.meta.filePath) {
+      const cover = await getCoverImagePathIfExists(localInfo.meta.filePath).catch(() => null)
+      if (cover) return `${formatLocalFilePathToUrl(cover.path)}?v=${Math.round(cover.mtime)}`
+    }
+
     let pic = await readPic(localInfo.meta.filePath).catch(() => null)
     if (pic) {
       if (pic.startsWith('/')) pic = formatLocalFilePathToUrl(pic)

@@ -25,6 +25,7 @@
 | `core/list.ts` | 列表 CRUD（内存 + `utils/data.ts` 持久化） |
 | `core/lyric.ts` | 歌词解析/行状态 |
 | `core/mediaMatch/` | 在线歌词匹配：`index.ts`（搜索/取词/应用/来源切换编排）、`validateLyric.ts`（取词有效性校验）、`providers/lrclib.ts`、`providers/qq.ts` |
+| `core/coverMatch/` | 在线封面匹配：`index.ts`（两源聚合/评分/下载校验/写图/状态/回退/刷新当前播放）、`providers/qq.ts`（albummid→R500/R150）、`providers/itunes.ts`（jp/us store、600x600bb） |
 | `core/dislikeList.ts` | 不喜欢规则（同步特性保留，入口在设置内） |
 | `core/sync.ts` | 同步客户端编排（连接/断开/状态） |
 | `core/desktopLyric.ts` | 桌面歌词（悬浮窗）控制 |
@@ -107,6 +108,7 @@ data → common state → sync → deeplink。
 | `common/` | 通用原子组件（`Text`、`Image`、`StatusBar`、`PageContent`、`Slider` 等） |
 | `MetadataEditModal/` | 编辑歌曲元数据（标题/歌手/专辑） |
 | `LyricsMatchModal/` | 在线歌词匹配弹窗：`index.tsx`（搜索/候选/预览/应用）、`CandidateItem.tsx` |
+| `CoverMatchModal/` | 在线封面匹配弹窗：`index.tsx`（搜索/候选/预览/应用/恢复原封面）、`CandidateItem.tsx` |
 | `MusicAddModal/`、`MusicMultiAddModal/` | 把歌曲加入列表 |
 | `SearchTipList/` | 列表内搜索提示（本地列表用） |
 
@@ -121,6 +123,9 @@ data → common state → sync → deeplink。
 | `request.js` | `httpFetch/httpGet`（fetch + AbortController + 后台超时；错误映射到 `message.requestMsg`） |
 | `localMediaMetadata.ts` | 本地音频元数据/封面/歌词读取（原生库）；`readEmbeddedLyric`/`readLrcFile` 拆分内嵌与同名 .lrc |
 | `lrcFile.ts` | 外挂 LRC 文件规则：`checkLrcMatchablePath`、备份 `.lrc.bak`、临时文件写入、回退、`getLrcState` |
+| `localPathCheck.ts` | 真实可写路径判定纯函数 `checkWritableLocalPath`（歌词/封面共用：`uri`/`app_private`/`invalid`/`ok`） |
+| `coverFile.ts` | 同名封面文件规则：`getImagePath`/`getCoverImagePathIfExists`/`getCoverState`/`applyCoverImage`（`.bak` 只留首次、`.tmp`+rename、跨扩展名暂存）/`rollbackCover` |
+| `coverMatch/{score,image}.ts` | 封面匹配纯函数：评分（专辑加分/伴奏惩罚/专辑维度去重）、JPEG/PNG magic + 尺寸/体积校验 |
 | `mediaMatch/{normalize,score,query,lrcText}.ts` | 在线歌词匹配纯函数：文本归一化、打分（含伴奏强负信号）、查询变体、LRC 文本生成 |
 | `music.ts` | 本地 MusicInfo 构建、`getLocalFilePath`、`decodeKrc` |
 | `listManage.ts` | 列表内存缓存与操作（overwrite/add/remove/move/position…） |

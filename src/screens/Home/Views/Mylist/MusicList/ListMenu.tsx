@@ -20,6 +20,7 @@ export interface ListMenuProps {
   onMove: (selectInfo: SelectInfo) => void
   onEditMetadata: (selectInfo: SelectInfo) => void
   onMatchLyric: (selectInfo: SelectInfo) => void
+  onMatchCover: (selectInfo: SelectInfo) => void
   onCopyName: (selectInfo: SelectInfo) => void
   onChangePosition: (selectInfo: SelectInfo) => void
   onDislikeMusic: (selectInfo: SelectInfo) => void
@@ -73,7 +74,7 @@ export default forwardRef<ListMenuType, ListMenuProps>((props, ref) => {
       { action: 'dislike', disabled: hasDislike(musicInfo), label: t('dislike') },
       { action: 'remove', label: t('delete') },
     ]
-    if (isLocal) menu.splice(5, 0, { action: 'editMetadata', disabled: !edit_metadata, label: t('edit_metadata') }, { action: 'matchLyric', label: t('lyrics_match_title') })
+    if (isLocal) menu.splice(5, 0, { action: 'editMetadata', disabled: !edit_metadata, label: t('edit_metadata') }, { action: 'matchLyric', label: t('lyrics_match_title') }, { action: 'matchCover', label: t('cover_match_title') })
     setMenus(menu)
     if (!isLocal) return
     void hasEditMetadata(musicInfo).then((_edit_metadata) => {
@@ -113,6 +114,9 @@ export default forwardRef<ListMenuType, ListMenuProps>((props, ref) => {
         break
       case 'matchLyric':
         props.onMatchLyric(selectInfo)
+        break
+      case 'matchCover':
+        props.onMatchCover(selectInfo)
         break
       case 'copyName':
         props.onCopyName(selectInfo)
