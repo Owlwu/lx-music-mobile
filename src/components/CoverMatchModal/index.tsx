@@ -129,6 +129,9 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
         return t('cover_match_image_too_large')
       case 'download_failed':
         return t('cover_match_download_failed')
+      case 'invalid_file':
+        // 音频被移走/候选非法；展示可读文案，不把技术信息透给用户
+        return t('cover_match_file_missing')
       default:
         return t('cover_match_error_other', { message: error?.message ?? String(error) })
     }

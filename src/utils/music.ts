@@ -1,5 +1,6 @@
 import { existsFile, unlink } from './fs'
-import { getLrcFilePath } from './localMediaMetadata'
+import { checkWritableLocalPath } from './localPathCheck'
+import { getLocalMusicSidecarPaths } from './musicSidecar'
 
 
 export const getLocalFilePath = async(musicInfo: LX.Music.MusicInfoLocal): Promise<string> => {
@@ -20,10 +21,23 @@ export const formatLocalFilePathToUrl = (filePath: string): string => {
   return `file://${filePath.split('/').map(encodeURIComponent).join('/')}`
 }
 
+/**
+ * 删除本地歌曲文件，并一并清理同目录同名附属文件：
+ * 歌词 `.lrc/.LRC`（含 `.bak`、临时文件）与封面 `.jpg/.png`（含 `.bak`、临时文件）。
+ *
+ * 仅在设置 `list.isDeleteLocalFileWhenRemove` 开启时由移除流程调用；
+ * 附属文件删除失败静默忽略，音频删除失败仍向上抛错（与原行为一致）。
+ */
 export const deleteLocalMusicFiles = async(musicInfo: LX.Music.MusicInfoLocal) => {
   const filePath = musicInfo.meta.filePath
+  // 只对真实用户目录生效；content://、App 缓存/私有副本不处理
+  const sidecarPaths = checkWritableLocalPath(filePath) === 'ok' ? getLocalMusicSidecarPaths(filePath) : []
   await Promise.all([
     unlink(filePath),
-    unlink(getLrcFilePath(filePath)).catch(() => {}),
+    ...sidecarPaths.map(async sidecarPath => {
+      try {
+        await unlink(sidecarPath)
+      } catch {}
+    }),
   ])
 }

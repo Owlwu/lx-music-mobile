@@ -127,7 +127,8 @@ data → common state → sync → deeplink。
 | `coverFile.ts` | 同名封面文件规则：`getImagePath`/`getCoverImagePathIfExists`/`getCoverState`/`applyCoverImage`（`.bak` 只留首次、`.tmp`+rename、跨扩展名暂存）/`rollbackCover` |
 | `coverMatch/{score,image}.ts` | 封面匹配纯函数：评分（专辑加分/伴奏惩罚/专辑维度去重）、JPEG/PNG magic + 尺寸/体积校验 |
 | `mediaMatch/{normalize,score,query,lrcText}.ts` | 在线歌词匹配纯函数：文本归一化、打分（含伴奏强负信号）、查询变体、LRC 文本生成（含翻译/罗马音扩展段与预览插行） |
-| `music.ts` | 本地 MusicInfo 构建、`getLocalFilePath`、`decodeKrc` |
+| `music.ts` | 本地 MusicInfo 构建、`getLocalFilePath`、`decodeKrc`；`deleteLocalMusicFiles` 在开启「移除时删除本地文件」时连带清理同名歌词/封面及备份 |
+| `musicSidecar.ts` | 纯函数：由音频路径生成同名歌词（`.lrc/.LRC` + `.bak`/临时）与封面（`.jpg/.png` + `.bak`/临时）路径 |
 | `listManage.ts` | 列表内存缓存与操作（overwrite/add/remove/move/position…） |
 | `dislikeManage.ts` | 不喜欢规则内存缓存 |
 | `lrcTools.ts` | LRC 解析/格式化 |

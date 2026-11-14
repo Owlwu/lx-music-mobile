@@ -112,8 +112,8 @@ const requestOnce = async(url: string, signal?: AbortSignal): Promise<HttpResult
     if (aborted) throw new Error('aborted')
     if (resp.statusCode < 200 || resp.statusCode >= 300) throw new Error(`HTTP ${resp.statusCode}`)
     const body = resp.body
-    // 响应体上限 4MB（只包含歌曲元数据/歌词，正常响应远小于此值）
-    const bodySize = typeof body === 'string' ? body.length : JSON.stringify(body ?? '').length
+    // 响应体上限 4MB（只包含歌曲元数据/歌词，正常响应远小于此值；按 UTF-8 字节数判断）
+    const bodySize = typeof body === 'string' ? Buffer.byteLength(body, 'utf8') : Buffer.byteLength(JSON.stringify(body ?? ''), 'utf8')
     if (bodySize > MAX_RESPONSE_SIZE) throw new Error('response body too large')
     return { statusCode: resp.statusCode, body }
   } finally {
@@ -132,6 +132,8 @@ const requestJson = async<T>(url: string, signal?: AbortSignal): Promise<T> => {
 const mapSongItem = (item: NeteaseSongItem): LX.Music.LyricsCandidate | null => {
   if (item.id == null) return null
   const name = htmlUnescape(item.name ?? '').trim()
+  // 空歌名无法在候选列表展示/区分，直接丢弃（与桌面 provider 对齐）
+  if (!name) return null
   const singer = (item.artists ?? [])
     .map(artist => artist.name?.trim())
     .filter((value): value is string => !!value)
@@ -237,7 +239,7 @@ export const getLyric = async(candidate: LX.Music.LyricsCandidate, signal?: Abor
     const tlyric = sanitizeExtendedLyric(json.tlyric?.lyric)
     const roma = sanitizeExtendedLyric(json.romalrc?.lyric)
     const rlyric = roma.length ? roma : sanitizeExtendedLyric(json.yromalrc?.lyric)
-    log.info(`media match source netease: lyric fetched in ${Date.now() - startAt}ms`)
+    log.info(`media match source netease: lyric fetched in ${Date.now() - startAt}ms, count=${tlyric ? tlyric.split('\n').length : 0}, code=${code}`)
     return {
       ...result,
       tlyric,
