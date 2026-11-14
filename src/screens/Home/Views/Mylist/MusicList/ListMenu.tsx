@@ -74,7 +74,7 @@ export default forwardRef<ListMenuType, ListMenuProps>((props, ref) => {
       { action: 'dislike', disabled: hasDislike(musicInfo), label: t('dislike') },
       { action: 'remove', label: t('delete') },
     ]
-    if (isLocal) menu.splice(5, 0, { action: 'editMetadata', disabled: !edit_metadata, label: t('edit_metadata') }, { action: 'matchLyric', label: t('lyrics_match_title') }, { action: 'matchCover', label: t('cover_match_title') })
+    if (isLocal) menu.splice(5, 0, { action: 'editMetadata', disabled: !edit_metadata, label: t('edit_metadata') }, { action: 'matchLyric', label: t('list_match_lyrics') }, { action: 'matchCover', label: t('list_match_cover') })
     setMenus(menu)
     if (!isLocal) return
     void hasEditMetadata(musicInfo).then((_edit_metadata) => {

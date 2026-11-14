@@ -119,6 +119,8 @@
   "list_import_tip__setting": "这是一个「设置」备份文件，移动版不支持导入此类文件",
   "list_import_tip__unknown": "未知的文件类型，请尝试升级到最新版本后再试",
   "list_loading": "加载中...",
+  "list_match_cover": "匹配封面",
+  "list_match_lyrics": "匹配歌词",
   "list_multi_add_title_first_add": "添加已选的",
   "list_multi_add_title_first_move": "移动已选的",
   "list_multi_add_title_last": "首歌曲到...",
