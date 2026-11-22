@@ -7,6 +7,7 @@ import {
   getRelDir,
   getSignatureRanges,
   isAudioFileName,
+  isCoverFileName,
   isLyricFileName,
   shortenRelPath,
   type FileIndex,
@@ -122,7 +123,7 @@ const readFileSignature = async(absPath: string, size: number): Promise<string |
   }
 }
 
-/** 扫描 scope 内所有文件夹下的音频与歌词文件 */
+/** 扫描 scope 内所有文件夹下的音频、歌词与封面文件 */
 export const scanEntries = async(root: string, scope: readonly string[]): Promise<ScanEntry[]> => {
   const entries: ScanEntry[] = []
   const walk = async(absDir: string, relDir: string, depth: number) => {
@@ -138,10 +139,11 @@ export const scanEntries = async(root: string, scope: readonly string[]): Promis
       }
       if (!file.isFile) continue
       const isAudio = isAudioFileName(name)
-      if (!isAudio && !isLyricFileName(name)) continue
+      // 封面只认小写 .jpg/.png（见 diff.isCoverFileName）；与歌词一样只是伴生文件
+      if (!isAudio && !isLyricFileName(name) && !isCoverFileName(name)) continue
       const size = file.size ?? 0
       const entry: ScanEntry = { path: relPath, size, mtime: file.lastModified ?? 0 }
-      // 音频才算内容签名：歌词是伴生文件，不参与内容比对
+      // 只有音频才算内容签名：歌词/封面是伴生文件，不参与内容比对
       if (isAudio) entry.sig = await readFileSignature(file.path, size)
       entries.push(entry)
     }
@@ -156,7 +158,8 @@ export const scanIndex = async(root: string, scope: readonly string[]): Promise<
   const entries = await scanEntries(root, scope)
   const index = buildIndex(entries)
   log.info('scan', `done root=${root} entries=${entries.length} folders=${index.folders.length} files=${index.files.length}`)
-  return index
+  // 能力标记：新版本扫描器支持封面索引；旧对端读到该字段缺失时会跳过对端封面
+  return { ...index, coverSupport: true }
 }
 
 /**
@@ -321,7 +324,12 @@ export const writeFileChunk = async(root: string, relPath: string, offset: numbe
 }
 
 /**
- * 删除文件；withLyric 为真时同时删除伴生 .lrc
+ * 删除文件；`withLyric` 为真时同时删除伴生 `.lrc`。
+ *
+ * 路径校验只做 `assertSafeRelPath`（相对路径/无 `..`），**不限制扩展名**，
+ * 因此对端把封面路径传进来、以 `withLyric=false` 调用时就是通用删除
+ * （契约 `docs/phase6-sync-sidecar-design.md` §5：音频与 `remoteSidecars` 逐个
+ * `musicFile_delete_file(path, false)`，不改 RPC 签名）。
  *
  * 磁盘上的名字可能是 NFD，且各段形式可混合，因此逐段解析；
  * 解析不到时再补一次「整条转 NFD」的兜底，避免留下残file。

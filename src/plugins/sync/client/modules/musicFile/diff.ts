@@ -14,6 +14,14 @@ export const MUSIC_FILE_CHUNK_SIZE = 192 * 1024
 /** 伴生歌词文件的扩展名 */
 export const LYRIC_EXTENSION = 'lrc'
 
+/**
+ * 伴生封面扩展名（只认**小写**，与播放链路读取同名封面的规则一致）。
+ * `.JPG/.PNG` 不参与索引（见契约 `docs/phase6-sync-sidecar-design.md` §2）。
+ */
+export const COVER_EXTENSIONS = ['jpg', 'png'] as const
+
+export type CoverFormat = typeof COVER_EXTENSIONS[number]
+
 export type FileGroupKey = 'remoteAdded' | 'localAdded' | 'remoteDeleted' | 'localDeleted' | 'conflict'
 
 export const FILE_GROUP_KEYS: FileGroupKey[] = ['remoteAdded', 'localAdded', 'remoteDeleted', 'localDeleted', 'conflict']
@@ -21,6 +29,23 @@ export const FILE_GROUP_KEYS: FileGroupKey[] = ['remoteAdded', 'localAdded', 're
 export interface LyricItem {
   size: number
   mtime: number
+}
+
+/** 同目录同名的封面（jpg 优先于 png） */
+export interface CoverItem {
+  format: CoverFormat
+  size: number
+  mtime: number
+}
+
+/**
+ * 跟随歌曲传输/删除的伴生文件。
+ * `path` 是相对同步根目录的 POSIX 路径，落点由两端按同一规则从音频路径推导。
+ */
+export interface SidecarItem {
+  path: string
+  size: number
+  kind: 'lyric' | 'cover'
 }
 
 export interface FileItem {
@@ -35,6 +60,8 @@ export interface FileItem {
   sig?: string
   /** 同目录同名的 .lrc 文件信息，不存在时为 null */
   lyric: LyricItem | null
+  /** 同目录同名的 .jpg/.png 文件信息（jpg 优先），不存在时为 null */
+  cover: CoverItem | null
 }
 
 export interface FileIndex {
@@ -42,6 +69,11 @@ export interface FileIndex {
   folders: string[]
   /** 索引中的音频文件（按 path 字典序） */
   files: FileItem[]
+  /**
+   * 本端扫描器是否支持封面索引（新版本恒为 true）。
+   * 旧对端没有该字段，发起端因此不传/不删对端封面，避免覆盖旧对端已有封面。
+   */
+  coverSupport?: boolean
 }
 
 export interface PlanItem {
@@ -51,6 +83,16 @@ export interface PlanItem {
   remoteSize: number | null
   localHasLyric: boolean
   remoteHasLyric: boolean
+  localHasCover: boolean
+  remoteHasCover: boolean
+  /** 方向为 upload 时要顺带传的伴生文件（源本地有、对端没有；cover 需 remoteCoverSupport） */
+  uploadSidecars: SidecarItem[]
+  /** 方向为 download 时要顺带传的伴生文件（源对端有、本地没有；cover 需 remoteCoverSupport） */
+  downloadSidecars: SidecarItem[]
+  /** delete_local 时要删除的本地伴生文件 */
+  localSidecars: SidecarItem[]
+  /** delete_remote 时要删除的对端伴生文件（cover 需 remoteCoverSupport） */
+  remoteSidecars: SidecarItem[]
   defaultChecked: boolean
   defaultDirection: TransferDirection
   /** conflict 专用：true 表示两端字节数相同、只是内容不同（否则是大小不同） */
@@ -66,15 +108,20 @@ export interface ScanEntry {
   path: string
   size: number
   mtime: number
-  /** 音频文件的内容签名（见 `buildSignature`）；歌词文件不需要 */
+  /** 音频文件的内容签名（见 `buildSignature`）；歌词/封面等伴生文件不需要 */
   sig?: string
 }
 
+/**
+ * 传输/删除动作携带的伴生文件列表（取代旧版的 `hasLyric: boolean`）。
+ * - download/upload：源侧有、目标侧没有的伴生文件（target 已有 → 不传，不覆盖）；
+ * - delete_local / delete_remote：该侧实际存在的伴生文件。
+ */
 export type TransferAction =
-  | { kind: 'download', path: string, size: number, hasLyric: boolean }
-  | { kind: 'upload', path: string, size: number, hasLyric: boolean }
-  | { kind: 'delete_local', path: string, hasLyric: boolean }
-  | { kind: 'delete_remote', path: string, hasLyric: boolean }
+  | { kind: 'download', path: string, size: number, sidecars: SidecarItem[] }
+  | { kind: 'upload', path: string, size: number, sidecars: SidecarItem[] }
+  | { kind: 'delete_local', path: string, sidecars: SidecarItem[] }
+  | { kind: 'delete_remote', path: string, sidecars: SidecarItem[] }
 
 export const getExt = (name: string) => {
   const index = name.lastIndexOf('.')
@@ -85,17 +132,47 @@ export const isAudioFileName = (name: string) => (AUDIO_EXTENSIONS as readonly s
 
 export const isLyricFileName = (name: string) => getExt(name) === LYRIC_EXTENSION
 
+/** 取未转小写的扩展名：封面只认小写 `.jpg/.png`，不能用会 lowercase 的 `getExt` */
+const getRawExt = (name: string) => {
+  const index = name.lastIndexOf('.')
+  return index > 0 && index < name.length - 1 ? name.substring(index + 1) : ''
+}
+
+/** 是否为参与同步的封面（只认小写 jpg/png） */
+export const isCoverFileName = (name: string) => {
+  const ext = getRawExt(name)
+  return ext === 'jpg' || ext === 'png'
+}
+
+/** 封面格式；不是小写 jpg/png 时返回 null */
+export const getCoverFormat = (name: string): CoverFormat | null => {
+  const ext = getRawExt(name)
+  return ext === 'jpg' || ext === 'png' ? ext : null
+}
+
+/** 去掉最后一个扩展名的相对路径（`a/b/c.flac` -> `a/b/c`） */
+const getStemRelPath = (relPath: string) => {
+  const index = relPath.lastIndexOf('.')
+  return index > 0 ? relPath.substring(0, index) : relPath
+}
+
 /** `a/b/c.flac` -> `a/b/c.lrc` */
 export const getLyricFileName = (name: string) => {
   const index = name.lastIndexOf('.')
   return (index > 0 ? name.substring(0, index) : name) + '.' + LYRIC_EXTENSION
 }
 
-/** `a/b/c.flac` -> `a/b/c` */
-export const getLyricRelPath = (relPath: string) => {
-  const index = relPath.lastIndexOf('.')
-  return (index > 0 ? relPath.substring(0, index) : relPath) + '.' + LYRIC_EXTENSION
+/** `a/b/c.flac` -> `a/b/c.lrc` */
+export const getLyricRelPath = (relPath: string) => getStemRelPath(relPath) + '.' + LYRIC_EXTENSION
+
+/** `a/b/c.flac` -> `a/b/c.jpg`（或 `.png`） */
+export const getCoverFileName = (name: string, format: CoverFormat) => {
+  const index = name.lastIndexOf('.')
+  return (index > 0 ? name.substring(0, index) : name) + '.' + format
 }
+
+/** `a/b/c.flac` -> `a/b/c.jpg`（或 `.png`） */
+export const getCoverRelPath = (relPath: string, format: CoverFormat) => getStemRelPath(relPath) + '.' + format
 
 /**
  * 内容签名：用于发现「字节数相同但内容不同」的文件
@@ -426,16 +503,27 @@ export const normalizeScope = (scope: readonly string[]) => {
 }
 
 /**
- * 由扫描结果构建索引：只保留音频文件，并把同目录同名的 .lrc 挂到对应音频上。
- * 传入的 `entries` 是目录下所有文件的原始列表（含 .lrc），函数内部完成配对。
+ * 由扫描结果构建索引：只保留音频文件，并把同目录同名的 `.lrc` 与 `.jpg/.png`
+ * 挂到对应音频上（契约 §2：jpg 优先、png 回退；对端任意一种存在即“已有封面”）。
+ * 传入的 `entries` 是目录下所有文件的原始列表（含歌词/封面），函数内部完成配对。
  */
 export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
   // 索引里统一存放 NFC 规范路径：两端才能对同一个文件得出同一个 path
   const canonical = entries.map(entry => ({ ...entry, path: canonicalizeRelPath(normalizeRelPath(entry.path)) }))
   const lyricMap = new Map<string, LyricItem>()
+  const coverMap = new Map<string, CoverItem>()
   for (const entry of canonical) {
-    if (!isLyricFileName(entry.path)) continue
-    lyricMap.set(entry.path, { size: entry.size, mtime: entry.mtime })
+    if (isLyricFileName(entry.path)) {
+      lyricMap.set(entry.path, { size: entry.size, mtime: entry.mtime })
+      continue
+    }
+    const format = getCoverFormat(entry.path)
+    if (!format) continue
+    const key = getStemRelPath(entry.path)
+    // 同名 jpg 与 png 同时存在时按播放优先级取 jpg，不因目录枚举顺序而变化
+    const existing = coverMap.get(key)
+    if (existing?.format === 'jpg') continue
+    coverMap.set(key, { format, size: entry.size, mtime: entry.mtime })
   }
 
   const folderSet = new Set<string>()
@@ -448,6 +536,7 @@ export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
       mtime: entry.mtime,
       sig: entry.sig,
       lyric: lyricMap.get(getLyricRelPath(entry.path)) ?? null,
+      cover: coverMap.get(getStemRelPath(entry.path)) ?? null,
     })
     const dir = getRelDir(entry.path)
     if (!dir.length) continue
@@ -491,6 +580,14 @@ export const getDefaultDirection = (group: FileGroupKey): TransferDirection => {
   }
 }
 
+const toLyricSidecar = (path: string, lyric: LyricItem | null): SidecarItem | null => {
+  return lyric ? { path: getLyricRelPath(path), size: lyric.size, kind: 'lyric' } : null
+}
+
+const toCoverSidecar = (path: string, cover: CoverItem | null): SidecarItem | null => {
+  return cover ? { path: getCoverRelPath(path, cover.format), size: cover.size, kind: 'cover' } : null
+}
+
 /**
  * 按契约 1.2 分类变更。
  *
@@ -499,12 +596,17 @@ export const getDefaultDirection = (group: FileGroupKey): TransferDirection => {
  * - size 相同、且两端都带内容签名 → 再比签名，签名不同视为内容不同
  *   （发现「字节数相同但内容不同」，例如原地解密过的音频）；
  * - 任一端没有签名（旧版本对端、或取样失败）→ 退回只比 size 的旧行为。
+ *
+ * 伴生文件**不参与**变更判定：只改 `.lrc` / `.jpg` / `.png` 不会产生 PlanItem。
+ * sidecar 列表只表达「跟随哪次传输/删除、且 target 没有才带上」，不会覆盖 target 已有文件。
  */
 export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baseline: readonly string[]): PlanGroups => {
   const local = indexMap(localIndex)
   const remote = indexMap(remoteIndex)
   const baselineSet = new Set(baseline)
   const groups = emptyGroups()
+  // 旧对端没有封面索引能力：不传、不删对端封面（避免覆盖），歌词规则不受影响
+  const remoteCoverSupport = remoteIndex.coverSupport === true
 
   const paths = new Set<string>([...local.keys(), ...remote.keys()])
   for (const path of Array.from(paths).sort()) {
@@ -529,13 +631,45 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
       group = inBaseline ? 'localDeleted' : 'remoteAdded'
     } else continue
 
+    const localLyric = localFile?.lyric ?? null
+    const remoteLyric = remoteFile?.lyric ?? null
+    const localCover = localFile?.cover ?? null
+    const remoteCover = remoteFile?.cover ?? null
+    const localLyricSidecar = toLyricSidecar(path, localLyric)
+    const remoteLyricSidecar = toLyricSidecar(path, remoteLyric)
+    const localCoverSidecar = toCoverSidecar(path, localCover)
+    // 对端封面只在支持封面索引时才参与（旧对端无论有没有 cover 都不动）
+    const remoteCoverSidecar = remoteCoverSupport ? toCoverSidecar(path, remoteCover) : null
+
+    // 删除该侧实际存在的伴生文件（本地侧总是参与；对端封面受 coverSupport 限制）
+    const localSidecars: SidecarItem[] = []
+    if (localLyricSidecar) localSidecars.push(localLyricSidecar)
+    if (localCoverSidecar) localSidecars.push(localCoverSidecar)
+    const remoteSidecars: SidecarItem[] = []
+    if (remoteLyricSidecar) remoteSidecars.push(remoteLyricSidecar)
+    if (remoteCoverSidecar) remoteSidecars.push(remoteCoverSidecar)
+
+    // 传输侧：源有、target 没有才带；target 已有任意一种封面格式都算“已有封面”
+    const uploadSidecars: SidecarItem[] = []
+    if (localLyricSidecar && !remoteLyric) uploadSidecars.push({ ...localLyricSidecar })
+    if (remoteCoverSupport && localCoverSidecar && !remoteCover) uploadSidecars.push({ ...localCoverSidecar })
+    const downloadSidecars: SidecarItem[] = []
+    if (remoteLyricSidecar && !localLyric) downloadSidecars.push({ ...remoteLyricSidecar })
+    if (remoteCoverSidecar && !localCover) downloadSidecars.push({ ...remoteCoverSidecar })
+
     groups[group].push({
       group,
       path,
       localSize: localFile ? localFile.size : null,
       remoteSize: remoteFile ? remoteFile.size : null,
-      localHasLyric: localFile?.lyric != null,
-      remoteHasLyric: remoteFile?.lyric != null,
+      localHasLyric: localLyric != null,
+      remoteHasLyric: remoteLyric != null,
+      localHasCover: localCover != null,
+      remoteHasCover: remoteCover != null,
+      uploadSidecars,
+      downloadSidecars,
+      localSidecars,
+      remoteSidecars,
       defaultChecked: getDefaultChecked(group),
       defaultDirection: getDefaultDirection(group),
       sameSize: group === 'conflict' ? sameSize : undefined,
@@ -549,7 +683,7 @@ export const planSelectionKey = (group: FileGroupKey, path: string) => `${group}
 
 /**
  * 把用户的勾选结果转换成实际要执行的传输动作。
- * 每个动作都携带伴生 .lrc，保证歌词跟随歌曲一起传输/删除。
+ * 每个动作都携带伴生歌词/封面列表，保证伴生文件跟随歌曲一起传输/删除。
  */
 export const buildActions = (
   plan: PlanGroups,
@@ -562,22 +696,22 @@ export const buildActions = (
       if (!selection[planSelectionKey(group, item.path)]) continue
       switch (group) {
         case 'remoteAdded':
-          actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0, hasLyric: item.remoteHasLyric })
+          actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0, sidecars: [...item.downloadSidecars] })
           break
         case 'localAdded':
-          actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0, hasLyric: item.localHasLyric })
+          actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0, sidecars: [...item.uploadSidecars] })
           break
         case 'remoteDeleted':
-          actions.push({ kind: 'delete_local', path: item.path, hasLyric: item.localHasLyric })
+          actions.push({ kind: 'delete_local', path: item.path, sidecars: [...item.localSidecars] })
           break
         case 'localDeleted':
-          actions.push({ kind: 'delete_remote', path: item.path, hasLyric: item.remoteHasLyric })
+          actions.push({ kind: 'delete_remote', path: item.path, sidecars: [...item.remoteSidecars] })
           break
         case 'conflict':
           if ((directions[planSelectionKey(group, item.path)] ?? item.defaultDirection) === 'pull') {
-            actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0, hasLyric: item.remoteHasLyric })
+            actions.push({ kind: 'download', path: item.path, size: item.remoteSize ?? 0, sidecars: [...item.downloadSidecars] })
           } else {
-            actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0, hasLyric: item.localHasLyric })
+            actions.push({ kind: 'upload', path: item.path, size: item.localSize ?? 0, sidecars: [...item.uploadSidecars] })
           }
           break
       }
@@ -585,6 +719,17 @@ export const buildActions = (
   }
   return actions
 }
+
+/**
+ * 单个动作实际要读/写/删的路径列表：音频 + 伴生文件（契约 §5 `targetsOf`）。
+ *
+ * 传输端对每个路径走既有 `musicFile_read_file` / `musicFile_write_file`；
+ * 删除端对每个路径走 `musicFile_delete_file(path, false)`（不改 RPC 签名）。
+ */
+export const getActionTargets = (action: TransferAction): string[] => [
+  action.path,
+  ...action.sidecars.map(sidecar => sidecar.path),
+]
 
 const parentsOf = (dir: string) => {
   const parents: string[] = []

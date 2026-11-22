@@ -76,7 +76,8 @@ data → common state → sync → deeplink。
 | `sync/` | 同步客户端：`index.ts`、`client/`（`client.ts`、`auth.ts`、`utils.ts`、`modules/{list,dislike,musicFile,sync}`、`sync/`）、`constants.ts`、`data.ts`、`listEvent.ts`、`dislikeEvent.ts`、`log.ts` |
 | `storage` | AsyncStorage 封装（**注意：实现为 `src/plugins/storage.ts` 而非目录**） |
 
-`sync/client/modules/musicFile/`：`diff.ts`（与桌面端逐字节镜像）、`localFs.ts`（扫描/分块读写/签名）、
+`sync/client/modules/musicFile/`：`diff.ts`（与桌面端逐字节镜像；音频 + `.lrc` + 小写 `.jpg/.png` 索引、
+`coverSupport`、sidecar 计划/动作规则）、`localFs.ts`（扫描/分块读写/签名/通用删除）、
 `service.ts`（**只实现对端 RPC**：`getRoot`/`getIndex`/`readChunk`/`writeChunk`/`removeFile`）、
 `handler.ts`（对端 RPC 注册）、`logger.ts`。同步一律由 PC 端发起，手机端没有 compare/apply 与同步基线。
 

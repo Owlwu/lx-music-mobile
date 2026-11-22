@@ -95,13 +95,26 @@
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
 | `musicFile_get_root` | – | `string`（对端音乐目录） |
-| `musicFile_get_index` | `scope: string[]` | 文件索引（路径/大小/签名/mtime） |
+| `musicFile_get_index` | `scope: string[]` | 文件索引（路径/大小/签名/mtime + `lyric`/`cover`，`coverSupport: true`） |
 | `musicFile_read_file` | `path, offset, size` | `{ data: base64, eof }` |
 | `musicFile_write_file` | `path, offset, data, isLast` | `void` |
 | `musicFile_delete_file` | `path, withLyric` | `void` |
 | `musicFile_sync_finished` | – | `void` |
 
 路径相对各自 `sync.musicFile.root`、`/` 分隔、过 `assertSafeRelPath`；分块 192 KiB（base64）。
+
+**歌词/封面伴生文件（Sidecar v2，契约 `docs/phase6-sync-sidecar-design.md`）**：
+
+- `FileItem` 新增 `cover: CoverItem | null`（`format` 只认小写 `jpg`/`png`，同 stem 时 jpg 优先、png 回退）；
+  `FileIndex` 新增可选 `coverSupport?: boolean`，本端 `scanIndex` 恒返回 `true`。
+- 变更判定仍只看音频 `size` + 首尾签名；**只改/新增/删除 `.lrc`/`.jpg`/`.png` 不产生清单项**。
+- `diff.ts` 的 `PlanItem` 增加 `localHasCover`/`remoteHasCover` 与 `uploadSidecars`/`downloadSidecars`/
+  `localSidecars`/`remoteSidecars`；传输动作改为 `sidecars: SidecarItem[]`（取代 `hasLyric`）。
+  规则：源有、target 没有才带；target 已有任意一种封面格式都算“已有封面”，**不覆盖、不删除**。
+- 旧对端没有 `coverSupport` → 发起端完全跳过对端封面（不传/不删），歌词仍按既有规则生效。
+- 删除歌曲时，发起端对音频与 `remoteSidecars` 逐个调用 `musicFile_delete_file(path, false)`
+  （对端把封面路径当普通相对路径删除），**不改 RPC 签名、不 bump featureVersion**。
+- `diff.ts` 与桌面端 `src/main/modules/sync/musicFile/diff.ts` 保持逐字节一致（桌面测试有镜像断言）。
 
 手机端**只实现这张表**（被 PC 调用的一方）：同步由 PC 端发起，`scope` 也由 PC 传入，
 因此手机端没有 compare/apply、变更清单 UI 与同步基线（这些留在桌面端）。
