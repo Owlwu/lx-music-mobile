@@ -20,7 +20,10 @@
 
 - 两段式 provider：`search(query, signal)` 只返回候选元数据；`getLyric(candidate, signal)` 按需取词，
   取词后校验（时间标签/长度/占位文本），无效返回 `null`；netease 的取词结果额外带行级中文翻译/罗马音。
-- 源顺序固定 `lrclib -> qq -> netease`，单源失败静默降级；整体超时 20s、串行且间隔 ≥250–300ms、关闭弹窗可中止。
+- 三源**并行**（`Promise.all`）+ 单源预算 8s（到点只 abort 该源，父信号 = 整体兜底 12s 或弹窗关闭）；
+  源内部请求仍串行、间隔 ≥250–300ms。
+- 失败语义：聚合结果非空即返回；候选为空且 ≥1 个源失败/超时 → 抛错（UI 显示可重试）；只有全部源都成功且
+  都 0 条时才返回空结果（「没匹配到」）。
 - LRCLIB：
   - 搜索 `GET https://lrclib.net/api/search?track_name=&artist_name=&album_name=`，0 条时回退 `?q=`；
   - 取词 `GET https://lrclib.net/api/get/{id}`；
@@ -43,6 +46,36 @@
 - 隐私：只发送歌名/歌手/专辑/时长（关键字由文件名解析结果生成），不发送文件路径；日志不打印歌词正文。
 - 接口细节与实测证据：仓库根 `docs/online-lyrics-match-design.md` §3、`docs/source/qq-provider.md`、
   `docs/phase4-handoff.md`。
+
+### 1.2 一键补全缺失歌词/封面（`src/core/batchMatch/`）
+
+- 契约：仓库根 `docs/phase6-batch-match-design.md`（与桌面端共用；本节只记移动端落点）。
+- 入口：当前列表顶部栏（`screens/Home/Views/Mylist/MusicList/ActiveList.tsx`）搜索按钮旁的「补全」
+  （`batch_match__btn_short`）；`MusicList/index.tsx` 先按 `batch_match__confirm` 确认（{total} 为当前列表本地歌曲数），
+  再打开 `components/BatchMatchModal/`。列表为空或没有本地歌曲时只提示 `batch_match__no_local`，不发请求。
+- 文件状态：`utils/batchMatch/state.ts` 的 `getLocalMusicFileState(filePath)` →
+  `{ fileExists, hasEmbeddedLyric, hasSidecarLyric, hasEmbeddedCover, hasSidecarCover }`。
+  - 同目录歌词：`.lrc` / `.LRC`，`existsFile` + `stat` 且 `size > 0`（0 字节按缺失）；
+  - 同目录封面：`utils/coverFile.getCoverImagePathIfExists`（jpg→png）+ 0 字节判断；
+  - 内嵌歌词/封面：**仅当对应独立文件缺失时**才调用 `readEmbeddedLyric` / `readPic`
+    （`readPic` 返回缓存路径，空串/抛错 = 无内嵌）；音频文件不存在时直接返回全 false（不计入搜索）。
+  - `getMissingKinds(state)`：只有「无内嵌 **且** 无独立文件」才算缺失。
+- 批次编排（`core/batchMatch/index.ts`，不依赖 React）：
+  - `getListMusics(listId)` → 只保留 `source === 'local'`；逐首探测状态，缺失项才进入待处理列表；
+  - 路径不可写（`checkLrcMatchablePath` / `checkCoverMatchablePath` 非 `ok`）与本地文件不存在一样计 `skipped`，
+    不进入搜索/下载；非本地歌曲直接忽略、不计失败；
+  - 逐首串行、先歌词后封面、每首之间默认 200ms（`intervalMs` 可注入）；单曲异常 catch 后计 `failed` 并继续；
+  - 歌词：`searchLyrics` → 按排序第 1 个候选 `getCandidateLyric`，无效/失败沿排序最多再试 4 个
+    `!instrumental && score >= 0.6`；成功后 `applyLrcToMusic` + `updateMusicLyricSource({ source: 'lrc' })`；
+  - 封面：`searchCoverCandidates` → 前 3 个候选依次 `applyCoverCandidate`，首个成功后 `refreshPlayingCover`；
+  - 取消：外部 `AbortSignal` 在每首开始、歌词/封面阶段之间、每次尝试前检查，并透传给搜索请求；
+    取消后不再开始新歌曲，保留已完成结果；
+  - 返回/进度：`BatchMatchResult { canceled, localTotal, total, processed, lyric, cover, failed, skipped }`，
+    `onProgress` 区分 `scanning`（分母 = 本地歌曲数）与 `matching`（分母 = 待处理歌曲数）。
+- 结束提示：`batch_match__summary`（toast/tipDialog）、`batch_match__none`、`batch_match__canceled`
+  （附已处理首数）；三语文案在 `src/lang/{zh-cn,zh-tw,en-us}.json`。
+- 已知取舍：取消不能中断已发出的网络请求（单源 8s / 整体 12s），最多等当前请求结束；
+  只新增同名文件，不覆盖/删除既有独立文件（备份/原子写沿用 `utils/lrcFile.ts`、`utils/coverFile.ts`）。
 
 ## 2. 同步客户端（`src/plugins/sync/`）
 
@@ -123,4 +156,6 @@
   - 结果写歌曲**同目录同名** `.jpg/.png`（不写音频标签、不改音频），旧图备份 `.bak`（只留第一次）、`.tmp`+rename 原子写；
     读取链路优先同名图并带 `?v=<mtime>` 击穿图片缓存；应用/回退后刷新当前播放封面（不打断播放）。
   - 只支持真实文件系统路径；`content://`、App 缓存/私有目录入口拦截提示，不做 SAF 写回。
+- 一键补全（已实现）：见 §1.2 与 `core/batchMatch/`、`utils/batchMatch/state.ts`、`components/BatchMatchModal/`；
+  作用于**当前列表**的本地歌曲，只补「内嵌与同名独立文件都缺失」的歌词/封面，串行 + 可取消 + 汇总计数。
 - 不要把旧的 `core/music/online.ts` 结构复活。

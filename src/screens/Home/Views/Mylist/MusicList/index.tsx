@@ -6,7 +6,7 @@ import { handleDislikeMusic, handlePlay, handlePlayLater, handleRemove, handleSh
 import List, { type ListType } from './List'
 import ListMusicAdd, { type MusicAddModalType as ListMusicAddType } from '@/components/MusicAddModal'
 import ListMusicMultiAdd, { type MusicMultiAddModalType as ListAddMultiType } from '@/components/MusicMultiAddModal'
-import { createStyle } from '@/utils/tools'
+import { confirmDialog, createStyle, toast } from '@/utils/tools'
 import { type LayoutChangeEvent, View } from 'react-native'
 import ActiveList, { type ActiveListType } from './ActiveList'
 import MultipleModeBar, { type SelectMode, type MultipleModeBarType } from './MultipleModeBar'
@@ -16,10 +16,14 @@ import MusicPositionModal, { type MusicPositionModalType } from './MusicPosition
 import MetadataEditModal, { type MetadataEditType, type MetadataEditProps } from '@/components/MetadataEditModal'
 import LyricsMatchModal, { type LyricsMatchModalType } from '@/components/LyricsMatchModal'
 import CoverMatchModal, { type CoverMatchModalType } from '@/components/CoverMatchModal'
+import BatchMatchModal, { type BatchMatchModalType } from '@/components/BatchMatchModal'
+import { getListMusics } from '@/core/list'
+import { useI18n } from '@/lang'
+import { log } from '@/utils/log'
 
 
 export default () => {
-  // const t = useI18n()
+  const t = useI18n()
   const activeListRef = useRef<ActiveListType>(null)
   const listMusicSearchRef = useRef<ListMusicSearchType>(null)
   const listRef = useRef<ListType>(null)
@@ -31,6 +35,7 @@ export default () => {
   const metadataEditTypeRef = useRef<MetadataEditType>(null)
   const lyricsMatchRef = useRef<LyricsMatchModalType>(null)
   const coverMatchRef = useRef<CoverMatchModalType>(null)
+  const batchMatchRef = useRef<BatchMatchModalType>(null)
   const listMenuRef = useRef<ListMenuType>(null)
   const layoutHeightRef = useRef<number>(0)
   const isShowMultipleModeBar = useRef(false)
@@ -127,12 +132,36 @@ export default () => {
     if (info.musicInfo.source != 'local') return
     coverMatchRef.current?.show({ musicInfo: info.musicInfo, listId: info.listId })
   }, [])
+  const handleBatchMatch = useCallback(() => {
+    void (async() => {
+      const listId = listState.activeListId
+      let localTotal = 0
+      try {
+        const musics = await getListMusics(listId)
+        localTotal = musics.filter(musicInfo => musicInfo.source === 'local').length
+      } catch (error: any) {
+        log.warn(`get list musics for batch match failed: ${error?.message ?? error}`)
+        toast(t('batch_match__no_local'), 'long')
+        return
+      }
+      if (!localTotal) {
+        toast(t('batch_match__no_local'), 'long')
+        return
+      }
+      const confirmed = await confirmDialog({
+        title: t('batch_match__title'),
+        message: t('batch_match__confirm', { total: localTotal }),
+        confirmButtonText: t('batch_match__btn_short'),
+      })
+      if (confirmed) batchMatchRef.current?.show({ listId })
+    })()
+  }, [t])
 
 
   return (
     <View style={styles.container}>
       <View style={{ zIndex: 2 }}>
-        <ActiveList ref={activeListRef} onShowSearchBar={handleShowSearch} onScrollToTop={hancelScrollToTop} />
+        <ActiveList ref={activeListRef} onShowSearchBar={handleShowSearch} onScrollToTop={hancelScrollToTop} onBatchMatch={handleBatchMatch} />
         <MultipleModeBar
           ref={multipleModeBarRef}
           onSwitchMode={hancelSwitchSelectMode}
@@ -181,6 +210,7 @@ export default () => {
       />
       <LyricsMatchModal ref={lyricsMatchRef} />
       <CoverMatchModal ref={coverMatchRef} />
+      <BatchMatchModal ref={batchMatchRef} />
     </View>
   )
 }

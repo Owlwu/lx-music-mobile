@@ -24,8 +24,9 @@
 | `core/music/` | 资源分发：`index.ts`（getMusicUrl/getPicPath/getLyricInfo）、`local.ts`（本地文件/封面/歌词）、`utils.ts`（歌词工具） |
 | `core/list.ts` | 列表 CRUD（内存 + `utils/data.ts` 持久化） |
 | `core/lyric.ts` | 歌词解析/行状态 |
-| `core/mediaMatch/` | 在线歌词匹配：`index.ts`（搜索/取词/应用/来源切换编排）、`validateLyric.ts`（取词有效性校验）、`providers/{lrclib,qq,netease}.ts`；netease 候选带行级中文翻译/罗马音（`tlrc:`/`rlrc:` 扩展段） |
+| `core/mediaMatch/` | 在线歌词匹配：`index.ts`（搜索/取词/应用/来源切换编排；三源并行 + 单源 8s 超时，有候选即返回、候选为空且有源失败时抛错）、`validateLyric.ts`（取词有效性校验）、`providers/{lrclib,qq,netease}.ts`；netease 候选带行级中文翻译/罗马音（`tlrc:`/`rlrc:` 扩展段） |
 | `core/coverMatch/` | 在线封面匹配：`index.ts`（两源聚合/评分/下载校验/写图/状态/回退/刷新当前播放）、`providers/qq.ts`（albummid→R500/R150）、`providers/itunes.ts`（jp/us store、600x600bb） |
+| `core/batchMatch/` | 一键补全缺失歌词/封面（不依赖 React）：`index.ts`（当前列表本地歌曲 → 缺失项扫描 → 串行补全/取消/进度/汇总）、`select.ts`（自动选择尝试顺序纯函数：歌词 0+最多 4 个回退、封面前 3 个） |
 | `core/dislikeList.ts` | 不喜欢规则（同步特性保留，入口在设置内） |
 | `core/sync.ts` | 同步客户端编排（连接/断开/状态） |
 | `core/desktopLyric.ts` | 桌面歌词（悬浮窗）控制 |
@@ -96,7 +97,7 @@ data → common state → sync → deeplink。
 | `Home/index.tsx` | 主界面；按 `useHorizontalMode` 选 `Vertical/` 或 `Horizontal/` |
 | `Home/Vertical/` | `Header`、`DrawerNav`、`Main`（PagerView 2 页：`nav_love`、`nav_setting`）、`Content` |
 | `Home/Horizontal/` | `Aside`、`Header`、`Main`、`Content` |
-| `Home/Views/Mylist/` | 我的列表：`MyList/`（列表管理、导入导出、排序、重命名）、`MusicList/`（歌曲行、右键菜单、搜索、多选） |
+| `Home/Views/Mylist/` | 我的列表：`MyList/`（列表管理、导入导出、排序、重命名）、`MusicList/`（歌曲行、右键菜单、搜索、多选；顶部当前列表栏含搜索与「补全」入口） |
 | `Home/Views/Setting/` | 设置：`settings/{Basic,List,Player,LyricDesktop,Sync,Theme,Backup,Other}` + `settings/About.tsx` + `components/` + 横竖布局容器 |
 | `PlayDetail/index.tsx` | 播放详情；`Vertical/`、`Horizontal/` 两套；`components/SettingPopup/`（歌词对齐/字号/进度、音量、倍速、歌词来源/恢复原始 LRC） |
 
@@ -109,6 +110,7 @@ data → common state → sync → deeplink。
 | `MetadataEditModal/` | 编辑歌曲元数据（标题/歌手/专辑） |
 | `LyricsMatchModal/` | 在线歌词匹配弹窗：`index.tsx`（搜索/候选/预览/应用）、`CandidateItem.tsx` |
 | `CoverMatchModal/` | 在线封面匹配弹窗：`index.tsx`（搜索/候选/预览/应用/恢复原封面）、`CandidateItem.tsx` |
+| `BatchMatchModal/` | 一键补全当前列表缺失歌词/封面的进度弹窗（`Dialog` + 扫描/补全阶段、{current}/{total}、实时计数、取消、结束汇总） |
 | `MusicAddModal/`、`MusicMultiAddModal/` | 把歌曲加入列表 |
 | `SearchTipList/` | 列表内搜索提示（本地列表用） |
 
@@ -126,6 +128,7 @@ data → common state → sync → deeplink。
 | `localPathCheck.ts` | 真实可写路径判定纯函数 `checkWritableLocalPath`（歌词/封面共用：`uri`/`app_private`/`invalid`/`ok`） |
 | `coverFile.ts` | 同名封面文件规则：`getImagePath`/`getCoverImagePathIfExists`/`getCoverState`/`applyCoverImage`（`.bak` 只留首次、`.tmp`+rename、跨扩展名暂存）/`rollbackCover` |
 | `coverMatch/{score,image}.ts` | 封面匹配纯函数：评分（专辑加分/伴奏惩罚/专辑维度去重）、JPEG/PNG magic + 尺寸/体积校验 |
+| `batchMatch/state.ts` | 一键补全的文件状态探测：`getLocalMusicFileState`（同目录 `.lrc`/`.LRC` 与 jpg/png 非 0 字节、仅独立文件缺失时读内嵌）与 `getMissingKinds` |
 | `mediaMatch/{normalize,score,query,lrcText}.ts` | 在线歌词匹配纯函数：文本归一化、打分（含伴奏强负信号）、查询变体、LRC 文本生成（含翻译/罗马音扩展段与预览插行） |
 | `music.ts` | 本地 MusicInfo 构建、`getLocalFilePath`、`decodeKrc`；`deleteLocalMusicFiles` 在开启「移除时删除本地文件」时连带清理同名歌词/封面及备份 |
 | `musicSidecar.ts` | 纯函数：由音频路径生成同名歌词（`.lrc/.LRC` + `.bak`/临时）与封面（`.jpg/.png` + `.bak`/临时）路径 |

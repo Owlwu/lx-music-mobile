@@ -15,8 +15,10 @@ import * as lrclib from './providers/lrclib'
 import * as netease from './providers/netease'
 import * as qq from './providers/qq'
 
-// 整体超时 20s（给第三源 netease 留余量，仍可被弹窗关闭 abort）
-const OVERALL_TIMEOUT = 20000
+// 三源并行后整体只留兜底超时（原串行版本为 20s）；仍可被弹窗关闭 abort
+const OVERALL_TIMEOUT = 12000
+// 单源预算：慢源到点即中止，不拖累其他源已经拿到的候选
+const SOURCE_TIMEOUT = 8000
 
 interface LyricsProvider {
   id: LX.Music.LyricsSource
@@ -27,6 +29,11 @@ interface LyricsProvider {
 // 源启用顺序固定 lrclib -> qq -> netease；netease 带翻译/罗马音，失败自动跳过
 const providers: LyricsProvider[] = [lrclib, qq, netease]
 
+interface SourceOutcome {
+  candidates: LX.Music.LyricsCandidate[]
+  failed: boolean
+}
+
 export interface SearchLyricsOptions {
   musicInfo: LX.Music.MusicInfoLocal
   keyword?: string
@@ -36,8 +43,10 @@ export interface SearchLyricsOptions {
 const createAbortContext = (signal?: AbortSignal) => {
   const controller = new AbortController()
   let canceled = false
+  let timedOut = false
   const timer = BackgroundTimer.setTimeout(() => {
     canceled = true
+    timedOut = true
     controller.abort()
   }, OVERALL_TIMEOUT)
   const handleAbort = () => {
@@ -50,9 +59,35 @@ const createAbortContext = (signal?: AbortSignal) => {
   return {
     signal: controller.signal,
     isCanceled: () => canceled,
+    // 仅整体兜底超时才会为 true，用于区分「用户关闭」与「真的超时」
+    isTimedOut: () => timedOut,
     dispose() {
       BackgroundTimer.clearTimeout(timer)
       signal?.removeEventListener?.('abort', handleAbort)
+    },
+  }
+}
+
+/**
+ * 单源超时上下文：父信号（整体超时 / 弹窗关闭）或自身计时器任一触发即中止该源请求
+ */
+const createSourceContext = (parentSignal: AbortSignal, timeout: number) => {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = BackgroundTimer.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeout)
+  const handleAbort = () => { controller.abort() }
+  if (parentSignal.aborted) handleAbort()
+  else parentSignal.addEventListener?.('abort', handleAbort)
+
+  return {
+    signal: controller.signal,
+    isTimedOut: () => timedOut,
+    dispose() {
+      BackgroundTimer.clearTimeout(timer)
+      parentSignal.removeEventListener?.('abort', handleAbort)
     },
   }
 }
@@ -71,33 +106,51 @@ export const getMusicMatchQuery = (musicInfo: LX.Music.MusicInfoLocal, keyword?:
 }
 
 /**
- * 搜索在线歌词候选：按源顺序请求 -> 聚合 -> 去重 -> 打分 -> 排序 -> 截断 30 条
+ * 搜索在线歌词候选：并行请求各源 -> 聚合 -> 去重 -> 打分 -> 排序 -> 截断 30 条
  */
 export const searchLyrics = async({ musicInfo, keyword, signal }: SearchLyricsOptions): Promise<LX.Music.LyricsCandidate[]> => {
   const query = getMusicMatchQuery(musicInfo, keyword)
   if (!query.variants.length) return []
 
+  const startAt = Date.now()
   const abortContext = createAbortContext(signal)
-  const candidates: LX.Music.LyricsCandidate[] = []
-  let failedSources = 0
+  let outcomes: SourceOutcome[] = []
   try {
-    for (const provider of providers) {
-      if (abortContext.isCanceled()) break
+    // 三源并行（与桌面端 matcher.ts 对齐）：串行会让各源延迟相加，
+    // 一个慢源就能吃光整体预算，使后面的源根本没机会返回
+    outcomes = await Promise.all(providers.map(async(provider): Promise<SourceOutcome> => {
+      const sourceContext = createSourceContext(abortContext.signal, SOURCE_TIMEOUT)
       try {
-        const result = await provider.search(query, abortContext.signal)
-        candidates.push(...result)
+        const candidates = await provider.search(query, sourceContext.signal)
+        // 源在超时点被中止时可能返回半成品：空结果按失败处理，避免「超时」被当成「没匹配到」
+        if (sourceContext.isTimedOut() && !candidates.length) throw new Error(`source timeout ${SOURCE_TIMEOUT}ms`)
+        return { candidates, failed: false }
       } catch (error: any) {
-        if (abortContext.isCanceled()) break
-        failedSources++
-        log.warn(`media match source ${provider.id} failed: ${error?.message ?? error}`)
+        if (!abortContext.isCanceled()) log.warn(`media match source ${provider.id} failed: ${error?.message ?? error}`)
+        return { candidates: [], failed: true }
+      } finally {
+        sourceContext.dispose()
       }
-    }
+    }))
   } finally {
     abortContext.dispose()
   }
-  if (abortContext.isCanceled() && !candidates.length) return []
-  if (!candidates.length && failedSources === providers.length) throw new Error('all lyrics sources failed')
-  return rankCandidates(query, candidates)
+
+  const candidates: LX.Music.LyricsCandidate[] = []
+  for (const outcome of outcomes) candidates.push(...outcome.candidates)
+  log.info(`media match search: ${candidates.length} candidates from ${providers.length} sources in ${Date.now() - startAt}ms`)
+  // 只要拿到候选就交付：个别源失败/超时不影响已经可用的结果
+  if (candidates.length) return rankCandidates(query, candidates)
+
+  // 用户关闭弹窗或被新一轮搜索取代（外部 abort）：静默返回空，UI 侧会丢弃本轮结果
+  if (abortContext.isCanceled() && !abortContext.isTimedOut()) return []
+
+  const failedCount = outcomes.filter(outcome => outcome.failed).length
+  // 全部或部分源失败且 0 条时必须抛错：否则「网络失败」会被 UI 显示成「没匹配到」，
+  // 表现为列表为空、多搜几次才出结果
+  if (abortContext.isTimedOut() || failedCount === providers.length) throw new Error('all lyrics sources failed')
+  if (failedCount > 0) throw new Error(`lyrics sources incomplete (${failedCount}/${providers.length} failed)`)
+  return []
 }
 
 /**

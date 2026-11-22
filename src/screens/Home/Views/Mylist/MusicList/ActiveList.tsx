@@ -13,16 +13,19 @@ import Text from '@/components/common/Text'
 import { LIST_IDS } from '@/config/constant'
 import Loading from '@/components/common/Loading'
 import { useSettingValue } from '@/store/setting/hook'
+import { useI18n } from '@/lang'
 
 export interface ActiveListProps {
   onShowSearchBar: () => void
   onScrollToTop: () => void
+  onBatchMatch: () => void
 }
 export interface ActiveListType {
   setVisibleBar: (visible: boolean) => void
 }
 
-export default forwardRef<ActiveListType, ActiveListProps>(({ onShowSearchBar, onScrollToTop }, ref) => {
+export default forwardRef<ActiveListType, ActiveListProps>(({ onShowSearchBar, onScrollToTop, onBatchMatch }, ref) => {
+  const t = useI18n()
   const theme = useTheme()
   const currentListId = useActiveListId()
   const fetching = useListFetching(currentListId)
@@ -66,6 +69,14 @@ export default forwardRef<ActiveListType, ActiveListProps>(({ onShowSearchBar, o
       <TouchableOpacity style={styles.currentListBtns} onPress={onShowSearchBar}>
         <Icon color={theme['c-button-font']} name="search-2" />
       </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.batchMatchBtn}
+        onPress={onBatchMatch}
+        accessibilityRole="button"
+        accessibilityLabel={t('batch_match__title')}
+      >
+        <Text size={12} color={theme['c-button-font']} numberOfLines={1}>{t('batch_match__btn_short')}</Text>
+      </TouchableOpacity>
     </TouchableOpacity>
   )
 })
@@ -103,5 +114,11 @@ const styles = createStyle({
     alignItems: 'center',
     height: '100%',
     // backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  batchMatchBtn: {
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
   },
 })

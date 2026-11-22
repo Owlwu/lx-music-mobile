@@ -528,7 +528,10 @@ console.log('\n== §6 接线：provider/超时/类型/默认值/i18n ==')
 
 const indexSource = readSrc('core/mediaMatch/index.ts')
 check('编排 provider 顺序 lrclib → qq → netease', /const providers: LyricsProvider\[\] = \[lrclib, qq, netease]/.test(indexSource), true)
-check('整体超时改为 20s', /const OVERALL_TIMEOUT = 20000/.test(indexSource), true)
+check('三源并行搜索', /Promise\.all\(providers\.map/.test(indexSource), true)
+check('整体兜底超时 12s', /const OVERALL_TIMEOUT = 12000/.test(indexSource), true)
+check('单源预算 8s', /const SOURCE_TIMEOUT = 8000/.test(indexSource), true)
+check('候选为空且有源失败时抛错（不再静默空）', /failedCount > 0\) throw new Error/.test(indexSource), true)
 check('getCandidateLyric 返回 LyricResult', /getCandidateLyric = async\(candidate: LX\.Music\.LyricsCandidate, signal\?: AbortSignal\): Promise<LX\.Music\.LyricResult \| null>/.test(indexSource), true)
 check('applyLrcToMusic 传递 tlyric/rlyric', /tlyric: result\.tlyric,\s*\r?\n\s*rlyric: result\.rlyric,/.test(indexSource), true)
 
