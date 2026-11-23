@@ -43,6 +43,11 @@ declare namespace LX {
         lyric: LyricItem | null
         /** 同目录同名的 .jpg/.png（jpg 优先），不存在时为 null */
         cover: CoverItem | null
+        /**
+         * 同 stem 的全部封面（jpg / png 同时存在时都保留，jpg 在前）。
+         * 旧对端没有该字段时按 `cover` 单值处理；删除靠它避免漏删另一种格式。
+         */
+        covers?: CoverItem[]
       }
 
       interface FileIndex {

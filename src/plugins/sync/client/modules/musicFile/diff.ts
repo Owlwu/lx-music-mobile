@@ -62,6 +62,11 @@ export interface FileItem {
   lyric: LyricItem | null
   /** 同目录同名的 .jpg/.png 文件信息（jpg 优先），不存在时为 null */
   cover: CoverItem | null
+  /**
+   * 同 stem 的全部封面（jpg / png 同时存在时都保留，jpg 在前）。
+   * 旧对端没有该字段时按 `cover` 单值处理；删除靠它避免漏删另一种格式。
+   */
+  covers?: CoverItem[]
 }
 
 export interface FileIndex {
@@ -89,9 +94,9 @@ export interface PlanItem {
   uploadSidecars: SidecarItem[]
   /** 方向为 download 时要顺带传的伴生文件（源对端有、本地没有；cover 需 remoteCoverSupport） */
   downloadSidecars: SidecarItem[]
-  /** delete_local 时要删除的本地伴生文件 */
+  /** delete_local 时要删除的本地伴生文件（歌词 + 全部封面；同 stem 还有其他音频时为空） */
   localSidecars: SidecarItem[]
-  /** delete_remote 时要删除的对端伴生文件（cover 需 remoteCoverSupport） */
+  /** delete_remote 时要删除的对端伴生文件（歌词 + 全部封面；cover 需 remoteCoverSupport） */
   remoteSidecars: SidecarItem[]
   defaultChecked: boolean
   defaultDirection: TransferDirection
@@ -511,7 +516,7 @@ export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
   // 索引里统一存放 NFC 规范路径：两端才能对同一个文件得出同一个 path
   const canonical = entries.map(entry => ({ ...entry, path: canonicalizeRelPath(normalizeRelPath(entry.path)) }))
   const lyricMap = new Map<string, LyricItem>()
-  const coverMap = new Map<string, CoverItem>()
+  const coverMap = new Map<string, CoverItem[]>()
   for (const entry of canonical) {
     if (isLyricFileName(entry.path)) {
       lyricMap.set(entry.path, { size: entry.size, mtime: entry.mtime })
@@ -520,23 +525,28 @@ export const buildIndex = (entries: readonly ScanEntry[]): FileIndex => {
     const format = getCoverFormat(entry.path)
     if (!format) continue
     const key = getStemRelPath(entry.path)
-    // 同名 jpg 与 png 同时存在时按播放优先级取 jpg，不因目录枚举顺序而变化
-    const existing = coverMap.get(key)
-    if (existing?.format === 'jpg') continue
-    coverMap.set(key, { format, size: entry.size, mtime: entry.mtime })
+    const list = coverMap.get(key) ?? []
+    list.push({ format, size: entry.size, mtime: entry.mtime })
+    coverMap.set(key, list)
   }
+
+  /** jpg 优先，其余按格式名排序，保证不因目录枚举顺序变化 */
+  const sortCovers = (covers: readonly CoverItem[]) =>
+    [...covers].sort((a, b) => a.format === b.format ? 0 : a.format === 'jpg' ? -1 : 1)
 
   const folderSet = new Set<string>()
   const files: FileItem[] = []
   for (const entry of canonical) {
     if (!isAudioFileName(entry.path)) continue
+    const covers = sortCovers(coverMap.get(getStemRelPath(entry.path)) ?? [])
     files.push({
       path: entry.path,
       size: entry.size,
       mtime: entry.mtime,
       sig: entry.sig,
       lyric: lyricMap.get(getLyricRelPath(entry.path)) ?? null,
-      cover: coverMap.get(getStemRelPath(entry.path)) ?? null,
+      cover: covers[0] ?? null,
+      covers,
     })
     const dir = getRelDir(entry.path)
     if (!dir.length) continue
@@ -666,6 +676,16 @@ const toCoverSidecar = (path: string, cover: CoverItem | null): SidecarItem | nu
   return cover ? { path: getCoverRelPath(path, cover.format), size: cover.size, kind: 'cover' } : null
 }
 
+/** 索引里该文件的全部封面；旧版本索引只有单值 `cover` */
+const coversOf = (file: FileItem | null | undefined): CoverItem[] => {
+  if (!file) return []
+  return file.covers?.length ? file.covers : (file.cover ? [file.cover] : [])
+}
+
+/** 删除用：该侧实际存在的全部封面（jpg + png），避免另一种格式留成孤儿文件 */
+const toCoverSidecars = (path: string, covers: readonly CoverItem[]): SidecarItem[] =>
+  covers.map(cover => ({ path: getCoverRelPath(path, cover.format), size: cover.size, kind: 'cover' }))
+
 /**
  * 按契约 1.2 分类变更。
  *
@@ -685,6 +705,18 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
   const groups = emptyGroups()
   // 旧对端没有封面索引能力：不传、不删对端封面（避免覆盖），歌词规则不受影响
   const remoteCoverSupport = remoteIndex.coverSupport === true
+
+  /** 同 stem 的音频数量：大于 1 表示歌词/封面被多个音频共享，删除该侧音频时不能顺手删掉 */
+  const countStems = (index: FileIndex) => {
+    const map = new Map<string, number>()
+    for (const file of index.files) {
+      const stem = getStemRelPath(file.path)
+      map.set(stem, (map.get(stem) ?? 0) + 1)
+    }
+    return map
+  }
+  const localStemCount = countStems(localIndex)
+  const remoteStemCount = countStems(remoteIndex)
 
   const paths = new Set<string>([...local.keys(), ...remote.keys()])
   for (const path of Array.from(paths).sort()) {
@@ -719,13 +751,18 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
     // 对端封面只在支持封面索引时才参与（旧对端无论有没有 cover 都不动）
     const remoteCoverSidecar = remoteCoverSupport ? toCoverSidecar(path, remoteCover) : null
 
-    // 删除该侧实际存在的伴生文件（本地侧总是参与；对端封面受 coverSupport 限制）
+    // 删除该侧实际存在的全部伴生文件；同 stem 的其他音频还在时保留共享文件
+    const stem = getStemRelPath(path)
     const localSidecars: SidecarItem[] = []
-    if (localLyricSidecar) localSidecars.push(localLyricSidecar)
-    if (localCoverSidecar) localSidecars.push(localCoverSidecar)
+    if ((localStemCount.get(stem) ?? 0) <= 1) {
+      if (localLyricSidecar) localSidecars.push(localLyricSidecar)
+      localSidecars.push(...toCoverSidecars(path, coversOf(localFile)))
+    }
     const remoteSidecars: SidecarItem[] = []
-    if (remoteLyricSidecar) remoteSidecars.push(remoteLyricSidecar)
-    if (remoteCoverSidecar) remoteSidecars.push(remoteCoverSidecar)
+    if ((remoteStemCount.get(stem) ?? 0) <= 1) {
+      if (remoteLyricSidecar) remoteSidecars.push(remoteLyricSidecar)
+      if (remoteCoverSupport) remoteSidecars.push(...toCoverSidecars(path, coversOf(remoteFile)))
+    }
 
     // 传输侧：源有、target 没有才带；target 已有任意一种封面格式都算“已有封面”
     const uploadSidecars: SidecarItem[] = []

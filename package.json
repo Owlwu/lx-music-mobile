@@ -10,6 +10,7 @@
     "sc": "react-native start --reset-cache",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "test": "node tests/run-all.mjs",
     "tsc": "tsc --noEmit",
     "typecheck": "npm run tsc",
     "rd": "react-devtools",
