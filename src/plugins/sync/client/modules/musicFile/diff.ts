@@ -616,7 +616,8 @@ export const computeNextBaseline = (
  * 基线归属：对端配对 + 两端根目录。任一项变化都按首次同步处理。
  *
  * - `pairId` 来自实际执行 RPC 的连接，不依赖设备名（同名设备也不会串基线）；
- * - `localRoot` 必须参与：换到空目录后如果沿用旧基线，对端仍有的文件会被判成「删除对端」。
+ * - `localRoot` 必须参与：换到空目录后如果沿用旧基线，对端仍有的文件会被判成「删除对端」；
+ * - 每个组合单独保存一份基线，A→B→A 切回 A 时不会因为 B 同步过就丢掉 A 的记忆。
  */
 export interface BaselineKey {
   pairId: string
@@ -624,27 +625,111 @@ export interface BaselineKey {
   remoteRoot: string
 }
 
-/** 基线文件版本；旧版是裸数组，因结构不符会按空基线处理 */
-export const BASELINE_VERSION = 2
+/** 基线文件版本；旧版本（裸数组 / v1 / v2）会被识别为 legacy，走一次性迁移 */
+export const BASELINE_VERSION = 3
 
-/**
- * 解析基线文件内容（纯逻辑，便于直接用 node 测试）。
- *
- * 旧版基线是裸数组，没有配对/根目录信息：沿用一次并原样返回，
- * 下一次保存会升级成带键格式。若直接按空基线处理，升级后的第一轮
- * 会把用户跳过的删除项当成「新增」并默认勾选上传。
- */
-export const parseBaseline = (raw: string, key: BaselineKey): string[] => {
+/** 最多保留的组合数，超出时淘汰最久未更新的 */
+export const BASELINE_MAX_ENTRIES = 12
+
+export interface BaselineEntry extends BaselineKey {
+  updatedAt: number
+  paths: string[]
+}
+
+export interface BaselineState {
+  paths: string[]
+  /**
+   * 数据来自无法确认归属的旧格式（裸数组 / v1 / v2 / 损坏文件）。
+   * 迁移只保留当前两端都存在的路径，避免把旧目录的记忆当成当前目录的删除依据。
+   */
+  legacy: boolean
+}
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(item => typeof item === 'string')
+
+const toBaselineEntry = (value: unknown): BaselineEntry | null => {
+  if (!value || typeof value !== 'object') return null
+  const data = value as Record<string, unknown>
+  if (typeof data.pairId !== 'string' || typeof data.localRoot !== 'string' || typeof data.remoteRoot !== 'string') return null
+  if (!isStringArray(data.paths)) return null
+  return {
+    pairId: data.pairId,
+    localRoot: data.localRoot,
+    remoteRoot: data.remoteRoot,
+    updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : 0,
+    paths: data.paths,
+  }
+}
+
+/** 读取 v3 文件里的全部条目；旧格式或损坏内容返回空数组 */
+export const parseBaselineEntries = (raw: string): BaselineEntry[] => {
   try {
     const data = JSON.parse(raw)
-    if (Array.isArray(data)) return data.filter((item: unknown): item is string => typeof item === 'string')
-    if (!data || typeof data !== 'object') return []
-    if (data.version !== BASELINE_VERSION) return []
-    if (data.pairId !== key.pairId || data.localRoot !== key.localRoot || data.remoteRoot !== key.remoteRoot) return []
-    return Array.isArray(data.paths) ? data.paths.filter((item: unknown): item is string => typeof item === 'string') : []
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return []
+    if (data.version !== BASELINE_VERSION || !Array.isArray(data.entries)) return []
+    const entries: unknown[] = data.entries
+    return entries.map(toBaselineEntry).filter((entry): entry is BaselineEntry => entry != null)
   } catch {
     return []
   }
+}
+
+const isSameBaselineKey = (entry: BaselineKey, key: BaselineKey) =>
+  entry.pairId === key.pairId && entry.localRoot === key.localRoot && entry.remoteRoot === key.remoteRoot
+
+/** 解析基线内容并区分「正常数据」与「需要迁移的旧数据」 */
+export const parseBaselineState = (raw: string, key: BaselineKey): BaselineState => {
+  try {
+    const data = JSON.parse(raw)
+    if (Array.isArray(data)) return { paths: isStringArray(data) ? data : [], legacy: true }
+    if (!data || typeof data !== 'object') return { paths: [], legacy: true }
+    if (data.version === BASELINE_VERSION) {
+      const entry = parseBaselineEntries(raw).find(item => isSameBaselineKey(item, key))
+      return { paths: entry ? entry.paths : [], legacy: false }
+    }
+    // v1 / v2：带路径但配对或目录无法确认，一次性迁移
+    if (typeof data.version === 'number') {
+      return { paths: isStringArray(data.paths) ? data.paths : [], legacy: true }
+    }
+    return { paths: [], legacy: true }
+  } catch {
+    return { paths: [], legacy: true }
+  }
+}
+
+/** 兼容旧调用：只取路径 */
+export const parseBaseline = (raw: string, key: BaselineKey): string[] => parseBaselineState(raw, key).paths
+
+/**
+ * 旧基线迁移：只保留当前两端都存在的路径。
+ * 这样旧目录留下的记忆不会把当前目录里「对端还有」的文件判成删除；
+ * 真正两端都有的文件仍保留同步状态，后续删除判断不受影响。
+ */
+export const seedBaselineFromLegacy = (
+  paths: readonly string[],
+  localIndex: FileIndex,
+  remoteIndex: FileIndex,
+): string[] => {
+  const localPaths = new Set(localIndex.files.map(file => file.path))
+  const remotePaths = new Set(remoteIndex.files.map(file => file.path))
+  return paths.filter(path => localPaths.has(path) && remotePaths.has(path)).sort()
+}
+
+/** 按 key 替换条目并保留其他组合的基线，按更新时间淘汰最旧的组合 */
+export const mergeBaselineEntries = (
+  entries: readonly BaselineEntry[],
+  key: BaselineKey,
+  paths: readonly string[],
+  updatedAt: number,
+): BaselineEntry[] => {
+  const next: BaselineEntry[] = [
+    { ...key, updatedAt, paths: [...paths].sort() },
+    ...entries.filter(entry => !isSameBaselineKey(entry, key)),
+  ]
+  return next
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.pairId.localeCompare(b.pairId))
+    .slice(0, BASELINE_MAX_ENTRIES)
 }
 
 const indexMap = (index: FileIndex) => {
