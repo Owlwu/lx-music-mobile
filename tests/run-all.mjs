@@ -9,6 +9,13 @@ import { readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+const [major, minor] = process.versions.node.split('.').map(Number)
+const supportsTypeStripping = (major === 22 && minor >= 18) || (major === 23 && minor >= 6) || major >= 24
+if (!supportsTypeStripping) {
+  console.error(`业务测试需要 Node >= 22.18（或 >= 23.6）：依赖 Node 内置的 TypeScript 类型擦除，当前 ${process.version}。`)
+  process.exit(1)
+}
+
 const dir = dirname(fileURLToPath(import.meta.url))
 const files = readdirSync(dir).filter(name => name.endsWith('.test.mjs')).sort()
 let failed = 0

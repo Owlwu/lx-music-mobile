@@ -612,19 +612,25 @@ export const computeNextBaseline = (
     .sort()
 }
 
-/** 基线归属：对端设备 + 对端根目录。任一项变化都按首次同步处理 */
+/**
+ * 基线归属：对端配对 + 两端根目录。任一项变化都按首次同步处理。
+ *
+ * - `pairId` 来自实际执行 RPC 的连接，不依赖设备名（同名设备也不会串基线）；
+ * - `localRoot` 必须参与：换到空目录后如果沿用旧基线，对端仍有的文件会被判成「删除对端」。
+ */
 export interface BaselineKey {
-  deviceName: string
+  pairId: string
+  localRoot: string
   remoteRoot: string
 }
 
 /** 基线文件版本；旧版是裸数组，因结构不符会按空基线处理 */
-export const BASELINE_VERSION = 1
+export const BASELINE_VERSION = 2
 
 /**
  * 解析基线文件内容（纯逻辑，便于直接用 node 测试）。
  *
- * 旧版基线是裸数组，没有设备/根目录信息：沿用一次并原样返回，
+ * 旧版基线是裸数组，没有配对/根目录信息：沿用一次并原样返回，
  * 下一次保存会升级成带键格式。若直接按空基线处理，升级后的第一轮
  * 会把用户跳过的删除项当成「新增」并默认勾选上传。
  */
@@ -634,7 +640,7 @@ export const parseBaseline = (raw: string, key: BaselineKey): string[] => {
     if (Array.isArray(data)) return data.filter((item: unknown): item is string => typeof item === 'string')
     if (!data || typeof data !== 'object') return []
     if (data.version !== BASELINE_VERSION) return []
-    if (data.deviceName !== key.deviceName || data.remoteRoot !== key.remoteRoot) return []
+    if (data.pairId !== key.pairId || data.localRoot !== key.localRoot || data.remoteRoot !== key.remoteRoot) return []
     return Array.isArray(data.paths) ? data.paths.filter((item: unknown): item is string => typeof item === 'string') : []
   } catch {
     return []
@@ -706,11 +712,18 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
   // 旧对端没有封面索引能力：不传、不删对端封面（避免覆盖），歌词规则不受影响
   const remoteCoverSupport = remoteIndex.coverSupport === true
 
+  /**
+   * 删除守卫按不区分大小写的 stem 分组：Windows/macOS 上 `Song.jpg` 与 `song.jpg`
+   * 是同一个文件，按字面分组会漏掉共享关系，删掉一个音频时可能连带删掉另一个
+   * 音频仍能读到的封面/歌词。代价是大小写敏感的系统上可能多留一个孤儿文件。
+   */
+  const deleteStemKey = (path: string) => getStemRelPath(path).toLowerCase()
+
   /** 同 stem 的音频数量：大于 1 表示歌词/封面被多个音频共享，删除该侧音频时不能顺手删掉 */
   const countStems = (index: FileIndex) => {
     const map = new Map<string, number>()
     for (const file of index.files) {
-      const stem = getStemRelPath(file.path)
+      const stem = deleteStemKey(file.path)
       map.set(stem, (map.get(stem) ?? 0) + 1)
     }
     return map
@@ -752,7 +765,7 @@ export const buildPlan = (localIndex: FileIndex, remoteIndex: FileIndex, baselin
     const remoteCoverSidecar = remoteCoverSupport ? toCoverSidecar(path, remoteCover) : null
 
     // 删除该侧实际存在的全部伴生文件；同 stem 的其他音频还在时保留共享文件
-    const stem = getStemRelPath(path)
+    const stem = deleteStemKey(path)
     const localSidecars: SidecarItem[] = []
     if ((localStemCount.get(stem) ?? 0) <= 1) {
       if (localLyricSidecar) localSidecars.push(localLyricSidecar)
