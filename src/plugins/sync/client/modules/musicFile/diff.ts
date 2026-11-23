@@ -634,15 +634,20 @@ export const BASELINE_MAX_ENTRIES = 12
 export interface BaselineEntry extends BaselineKey {
   updatedAt: number
   paths: string[]
+  /**
+   * 旧数据迁移后尚未被用户确认。再次比较时仍提示、仍不默认勾选；
+   * 用户执行同步（或确认没有要做的动作）后清除。
+   */
+  pendingMigration?: boolean
 }
 
+export type BaselineLoadStatus = 'missing' | 'ok' | 'legacy' | 'corrupt'
+
 export interface BaselineState {
+  status: BaselineLoadStatus
   paths: string[]
-  /**
-   * 数据来自无法确认归属的旧格式（裸数组 / v1 / v2 / 损坏文件）。
-   * 迁移只保留当前两端都存在的路径，避免把旧目录的记忆当成当前目录的删除依据。
-   */
-  legacy: boolean
+  /** status 为 ok 时：该组合是否还有一次未确认的迁移 */
+  pendingMigration?: boolean
 }
 
 const isStringArray = (value: unknown): value is string[] =>
@@ -653,16 +658,18 @@ const toBaselineEntry = (value: unknown): BaselineEntry | null => {
   const data = value as Record<string, unknown>
   if (typeof data.pairId !== 'string' || typeof data.localRoot !== 'string' || typeof data.remoteRoot !== 'string') return null
   if (!isStringArray(data.paths)) return null
-  return {
+  const entry: BaselineEntry = {
     pairId: data.pairId,
     localRoot: data.localRoot,
     remoteRoot: data.remoteRoot,
     updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : 0,
     paths: data.paths,
   }
+  if (data.pendingMigration === true) entry.pendingMigration = true
+  return entry
 }
 
-/** 读取 v3 文件里的全部条目；旧格式或损坏内容返回空数组 */
+/** 读取 v3 文件里的全部有效条目；旧格式或损坏内容返回空数组 */
 export const parseBaselineEntries = (raw: string): BaselineEntry[] => {
   try {
     const data = JSON.parse(raw)
@@ -678,24 +685,43 @@ export const parseBaselineEntries = (raw: string): BaselineEntry[] => {
 const isSameBaselineKey = (entry: BaselineKey, key: BaselineKey) =>
   entry.pairId === key.pairId && entry.localRoot === key.localRoot && entry.remoteRoot === key.remoteRoot
 
-/** 解析基线内容并区分「正常数据」与「需要迁移的旧数据」 */
+/**
+ * 解析基线内容：
+ * - 合法 JSON 的裸数组 / v1 / v2 → legacy（需要一次性迁移）；
+ * - 解析失败、结构缺失、当前组合条目损坏 → corrupt（不能静默当成空基线）；
+ * - 合法 v3 但当前组合不存在 → ok + 空路径（该组合首次同步，属正常情况）。
+ *
+ * 文件不存在的判断在文件层（`baseline.ts`），不在这里。
+ */
 export const parseBaselineState = (raw: string, key: BaselineKey): BaselineState => {
+  let data: any
   try {
-    const data = JSON.parse(raw)
-    if (Array.isArray(data)) return { paths: isStringArray(data) ? data : [], legacy: true }
-    if (!data || typeof data !== 'object') return { paths: [], legacy: true }
-    if (data.version === BASELINE_VERSION) {
-      const entry = parseBaselineEntries(raw).find(item => isSameBaselineKey(item, key))
-      return { paths: entry ? entry.paths : [], legacy: false }
-    }
-    // v1 / v2：带路径但配对或目录无法确认，一次性迁移
-    if (typeof data.version === 'number') {
-      return { paths: isStringArray(data.paths) ? data.paths : [], legacy: true }
-    }
-    return { paths: [], legacy: true }
+    data = JSON.parse(raw)
   } catch {
-    return { paths: [], legacy: true }
+    return { status: 'corrupt', paths: [] }
   }
+  if (Array.isArray(data)) return { status: 'legacy', paths: isStringArray(data) ? data : [] }
+  if (!data || typeof data !== 'object' || typeof data.version !== 'number') return { status: 'corrupt', paths: [] }
+  if (data.version !== BASELINE_VERSION) {
+    // v1 / v2：带路径但配对或目录无法确认，一次性迁移
+    return { status: 'legacy', paths: isStringArray(data.paths) ? data.paths : [] }
+  }
+  if (!Array.isArray(data.entries)) return { status: 'corrupt', paths: [] }
+  let matched: BaselineEntry | null = null
+  let currentEntryBroken = false
+  for (const rawEntry of data.entries as unknown[]) {
+    if (!rawEntry || typeof rawEntry !== 'object') continue
+    const entry = rawEntry as Record<string, unknown>
+    if (entry.pairId !== key.pairId || entry.localRoot !== key.localRoot || entry.remoteRoot !== key.remoteRoot) continue
+    const parsed = toBaselineEntry(rawEntry)
+    if (parsed) matched = parsed
+    else currentEntryBroken = true
+  }
+  if (currentEntryBroken) return { status: 'corrupt', paths: [] }
+  if (!matched) return { status: 'ok', paths: [] }
+  return matched.pendingMigration === true
+    ? { status: 'ok', paths: matched.paths, pendingMigration: true }
+    : { status: 'ok', paths: matched.paths }
 }
 
 /** 兼容旧调用：只取路径 */
@@ -716,16 +742,22 @@ export const seedBaselineFromLegacy = (
   return paths.filter(path => localPaths.has(path) && remotePaths.has(path)).sort()
 }
 
-/** 按 key 替换条目并保留其他组合的基线，按更新时间淘汰最旧的组合 */
+/**
+ * 按 key 替换条目并保留其他组合的基线，按更新时间淘汰最旧的组合。
+ * `pendingMigration` 为 true 时写入待确认标记。
+ */
 export const mergeBaselineEntries = (
   entries: readonly BaselineEntry[],
   key: BaselineKey,
   paths: readonly string[],
   updatedAt: number,
+  pendingMigration = false,
 ): BaselineEntry[] => {
+  const entry: BaselineEntry = { ...key, updatedAt, paths: [...paths].sort() }
+  if (pendingMigration) entry.pendingMigration = true
   const next: BaselineEntry[] = [
-    { ...key, updatedAt, paths: [...paths].sort() },
-    ...entries.filter(entry => !isSameBaselineKey(entry, key)),
+    entry,
+    ...entries.filter(item => !isSameBaselineKey(item, key)),
   ]
   return next
     .sort((a, b) => b.updatedAt - a.updatedAt || a.pairId.localeCompare(b.pairId))
