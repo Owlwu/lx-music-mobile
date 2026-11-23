@@ -553,6 +553,80 @@ export const buildBaseline = (localIndex: FileIndex, remoteIndex: FileIndex) => 
   return localIndex.files.map(file => file.path).filter(path => remotePaths.has(path)).sort()
 }
 
+/** 单个动作的执行结果：只有成功完成的动作才允许改动同步基线 */
+export interface ExecutedAction {
+  kind: TransferAction['kind']
+  path: string
+  ok: boolean
+}
+
+/** 把已完成动作落到基线上；未勾选、失败、未执行的动作保持原状态 */
+const mergeExecutedBaseline = (prev: readonly string[], executed: readonly ExecutedAction[]) => {
+  const next = new Set(prev)
+  for (const item of executed) {
+    if (!item.ok) continue
+    if (item.kind === 'upload' || item.kind === 'download') next.add(item.path)
+    else next.delete(item.path)
+  }
+  return next
+}
+
+/**
+ * 取消 / 中途退出时的基线更新：不重新扫描，只写入已完成动作的结果。
+ * 剩余动作保持上一次基线的状态，下一轮仍按删除或新增提示用户。
+ */
+export const applyExecutedToBaseline = (prev: readonly string[], executed: readonly ExecutedAction[]) =>
+  Array.from(mergeExecutedBaseline(prev, executed)).sort()
+
+/**
+ * 正常收尾时的基线更新。
+ *
+ * 与旧的「整体替换成两端交集」相比，这里只做增量：
+ * - 本轮结束时两端都存在的文件补进基线（覆盖同步成功但伴生文件失败的情况）；
+ * - 执行成功的删除移出基线；
+ * - 未勾选 / 失败的条目原样保留，否则跳过一次删除后，下一轮会把它当成新增并默认勾选上传。
+ * 只清除当前 scope 内、两端都已不存在的条目；scope 外的记忆保留。
+ */
+export const computeNextBaseline = (
+  prev: readonly string[],
+  executed: readonly ExecutedAction[],
+  finalLocal: FileIndex,
+  finalRemote: FileIndex,
+  scope: readonly string[] = [],
+) => {
+  const next = mergeExecutedBaseline(prev, executed)
+  for (const path of buildBaseline(finalLocal, finalRemote)) next.add(path)
+  const present = new Set([...finalLocal.files, ...finalRemote.files].map(file => file.path))
+  return Array.from(next)
+    .filter(path => present.has(path) || !isPathInScope(path, scope))
+    .sort()
+}
+
+/** 基线归属：对端设备 + 对端根目录。任一项变化都按首次同步处理 */
+export interface BaselineKey {
+  deviceName: string
+  remoteRoot: string
+}
+
+/** 基线文件版本；旧版是裸数组，因结构不符会按空基线处理 */
+export const BASELINE_VERSION = 1
+
+/**
+ * 解析基线文件内容（纯逻辑，便于直接用 node 测试）。
+ * 版本、设备或根目录不匹配时返回空基线。
+ */
+export const parseBaseline = (raw: string, key: BaselineKey): string[] => {
+  try {
+    const data = JSON.parse(raw)
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return []
+    if (data.version !== BASELINE_VERSION) return []
+    if (data.deviceName !== key.deviceName || data.remoteRoot !== key.remoteRoot) return []
+    return Array.isArray(data.paths) ? data.paths.filter((item: unknown): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 const indexMap = (index: FileIndex) => {
   const map = new Map<string, FileItem>()
   for (const file of index.files) map.set(file.path, file)
