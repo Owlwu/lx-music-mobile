@@ -613,12 +613,16 @@ export const BASELINE_VERSION = 1
 
 /**
  * 解析基线文件内容（纯逻辑，便于直接用 node 测试）。
- * 版本、设备或根目录不匹配时返回空基线。
+ *
+ * 旧版基线是裸数组，没有设备/根目录信息：沿用一次并原样返回，
+ * 下一次保存会升级成带键格式。若直接按空基线处理，升级后的第一轮
+ * 会把用户跳过的删除项当成「新增」并默认勾选上传。
  */
 export const parseBaseline = (raw: string, key: BaselineKey): string[] => {
   try {
     const data = JSON.parse(raw)
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return []
+    if (Array.isArray(data)) return data.filter((item: unknown): item is string => typeof item === 'string')
+    if (!data || typeof data !== 'object') return []
     if (data.version !== BASELINE_VERSION) return []
     if (data.deviceName !== key.deviceName || data.remoteRoot !== key.remoteRoot) return []
     return Array.isArray(data.paths) ? data.paths.filter((item: unknown): item is string => typeof item === 'string') : []
