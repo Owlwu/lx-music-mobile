@@ -1,6 +1,6 @@
 import { playList } from '@/core/player/player'
-import { useMemo, useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { FlatList, type NativeScrollEvent, type NativeSyntheticEvent, type FlatListProps } from 'react-native'
+import { useCallback, useMemo, useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react'
+import { FlatList, View, type NativeScrollEvent, type NativeSyntheticEvent, type FlatListProps } from 'react-native'
 
 import listState from '@/store/list/state'
 import playerState from '@/store/player/state'
@@ -14,6 +14,7 @@ import type { Position } from './ListMenu'
 import type { SelectMode } from './MultipleModeBar'
 import { useActiveListId } from '@/store/list/hook'
 import { useSettingValue } from '@/store/setting/hook'
+import FastScrollBar, { type FastScrollBarType } from './FastScrollBar'
 
 type FlatListType = FlatListProps<LX.Music.MusicInfo>
 
@@ -47,7 +48,9 @@ const usePlayIndex = () => {
 const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, onSelectAll }, ref) => {
   // const t = useI18n()
   const flatListRef = useRef<FlatList>(null)
+  const fastScrollBarRef = useRef<FastScrollBarType>(null)
   const [currentList, setList] = useState<LX.List.ListMusics>([])
+  const [viewportHeight, setViewportHeight] = useState(0)
   const listFirstScrollRef = useRef(false)
   const isMultiSelectModeRef = useRef(false)
   const selectModeRef = useRef<SelectMode>('single')
@@ -55,6 +58,7 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
   const [selectedList, setSelectedList] = useState<LX.List.ListMusics>([])
   const selectedListRef = useRef<LX.List.ListMusics>([])
   const currentListIdRef = useRef('')
+  const isUpdatingListRef = useRef(true)
   const waitJumpListPositionRef = useRef(false)
   const rowInfo = useRef(getRowInfo())
   const isShowAlbumName = useSettingValue('list.isShowAlbumName')
@@ -101,20 +105,23 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
   }))
 
   useEffect(() => {
-    let isUpdateingList = true
+    let listRequest = 0
     const updateList = (id: string) => {
       if (currentListIdRef.current == id) return
-      isUpdateingList = true
+      const request = ++listRequest
+      isUpdatingListRef.current = true
+      fastScrollBarRef.current?.reset()
       setList([])
       currentListIdRef.current = id
       void Promise.all([getListMusics(id), getListPosition(id)]).then(([list, position]) => {
         requestAnimationFrame(() => {
-          if (currentListIdRef.current != id) return
+          if (request != listRequest) return
           selectedListRef.current = []
           setSelectedList([])
           setList([...list])
           requestAnimationFrame(() => {
-            isUpdateingList = false
+            if (request != listRequest) return
+            isUpdatingListRef.current = false
             listFirstScrollRef.current = true
             if (waitJumpListPositionRef.current) {
               waitJumpListPositionRef.current = false
@@ -126,6 +133,7 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
               }
             }
             flatListRef.current?.scrollToOffset({ offset: position, animated: false })
+            fastScrollBarRef.current?.syncOffset(position)
           })
         })
       })
@@ -149,7 +157,7 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
           setActiveList(listId)
           if (currentListIdRef.current != listId) waitJumpListPositionRef.current = true
         } else if (playerState.playInfo.playIndex > -1) {
-          if (isUpdateingList) waitJumpListPositionRef.current = true
+          if (isUpdatingListRef.current) waitJumpListPositionRef.current = true
           else {
             try {
               flatListRef.current?.scrollToIndex({ index: Math.floor(playerState.playInfo.playIndex / (rowInfo.current.rowNum ?? 1)), viewPosition: 0.3, animated: true })
@@ -171,6 +179,7 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
     global.app_event.on('jumpListPosition', handleJumpPosition)
 
     return () => {
+      listRequest++
       global.state_event.off('mylistToggled', updateList)
       global.app_event.off('myListMusicUpdate', handleChange)
       global.app_event.off('jumpListPosition', handleJumpPosition)
@@ -241,12 +250,20 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
   }
 
   const handleScroll = ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isUpdatingListRef.current) return
+    fastScrollBarRef.current?.syncOffset(nativeEvent.contentOffset.y)
     if (listFirstScrollRef.current) {
       listFirstScrollRef.current = false
       return
     }
     void saveListPosition(listState.activeListId, nativeEvent.contentOffset.y)
   }
+
+  const handleFastScroll = useCallback((offset: number) => {
+    if (isUpdatingListRef.current) return
+    listFirstScrollRef.current = false
+    flatListRef.current?.scrollToOffset({ offset, animated: false })
+  }, [])
 
 
   const renderItem: FlatListType['renderItem'] = ({ item, index }) => (
@@ -269,33 +286,43 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
   }
 
   return (
-    <FlatList
-      ref={flatListRef}
-      onScroll={handleScroll}
-      style={styles.list}
-      data={currentList}
-      maxToRenderPerBatch={4}
-      numColumns={rowInfo.current.rowNum}
-      horizontal={false}
-      // updateCellsBatchingPeriod={80}
-      windowSize={8}
-      removeClippedSubviews={true}
-      initialNumToRender={12}
-      renderItem={renderItem}
-      keyExtractor={getkey}
-      extraData={activeIndex}
-      getItemLayout={getItemLayout}
-    />
+    <View style={styles.container} onLayout={({ nativeEvent }) => { setViewportHeight(nativeEvent.layout.height) }}>
+      <FlatList
+        ref={flatListRef}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        style={styles.list}
+        data={currentList}
+        maxToRenderPerBatch={4}
+        numColumns={rowInfo.current.rowNum}
+        horizontal={false}
+        // updateCellsBatchingPeriod={80}
+        windowSize={8}
+        removeClippedSubviews={true}
+        initialNumToRender={12}
+        renderItem={renderItem}
+        keyExtractor={getkey}
+        extraData={activeIndex}
+        getItemLayout={getItemLayout}
+      />
+      <FastScrollBar
+        ref={fastScrollBarRef}
+        viewportHeight={viewportHeight}
+        contentHeight={Math.ceil(currentList.length / (rowInfo.current.rowNum ?? 1)) * ITEM_HEIGHT}
+        onScrollTo={handleFastScroll}
+      />
+    </View>
   )
 })
 
 const styles = createStyle({
   container: {
     flex: 1,
+    flexDirection: 'row',
   },
   list: {
-    flexGrow: 1,
-    flexShrink: 1,
+    flex: 1,
   },
 })
 

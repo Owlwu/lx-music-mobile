@@ -119,6 +119,7 @@
   "list_end": "到底啦~",
   "list_error": "加载失败😥，点击尝试重新加载",
   "list_export": "导出",
+  "list_fast_scroll": "快速滚动歌曲列表",
   "list_export_part_desc": "选择列表文件保存位置",
   "list_import": "导入",
   "list_import_part_button_cancel": "不要啊",
