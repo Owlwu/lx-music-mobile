@@ -4,11 +4,11 @@ import { getLyricInfo } from '@/core/music/local'
 import { setMusicInfo } from '@/core/player/playInfo'
 import playerActions from '@/store/player/action'
 import playerState from '@/store/player/state'
-import { readEmbeddedLyric } from '@/utils/localMediaMetadata'
+import { clearMusicLyric } from '@/utils/data'
 import { buildLrcText } from '@/utils/mediaMatch/lrcText'
 import { createMatchQuery, getFileStem, parseIntervalToSec } from '@/utils/mediaMatch/query'
 import { rankCandidates } from '@/utils/mediaMatch/score'
-import { rollbackLrcFile, writeLrcFile, type LrcRollbackResult, type LrcWriteResult } from '@/utils/lrcFile'
+import { deleteLrcFile, writeLrcFile, type LrcWriteResult } from '@/utils/lrcFile'
 import { log } from '@/utils/log'
 
 import * as lrclib from './providers/lrclib'
@@ -163,7 +163,7 @@ export const getCandidateLyric = async(candidate: LX.Music.LyricsCandidate, sign
 }
 
 /**
- * 应用候选：生成 LRC 文本并按文件规则写入（备份/临时文件/失败恢复）
+ * 应用候选：生成 LRC 文本并按文件规则写入（临时文件写入后替换）
  * @param lyric 已取到的歌词（预览时缓存）；不传则重新取词
  */
 export const applyLrcToMusic = async({ musicInfo, candidate, lyric: fetchedLyric }: {
@@ -237,17 +237,9 @@ export const refreshPlayingLyric = async(musicInfo: LX.Music.MusicInfoLocal): Pr
   }
 }
 
-/**
- * 回退外挂 LRC：删除当前 .lrc、恢复 .lrc.bak，并把来源切回内嵌（内嵌不存在时保持 LRC）
- */
-export const rollbackLrc = async({ listId, musicInfo }: {
-  listId?: string | null
-  musicInfo: LX.Music.MusicInfoLocal
-}): Promise<LrcRollbackResult> => {
-  const result = await rollbackLrcFile(musicInfo.meta.filePath)
-  if (!result.restored) return result
-  const embeddedLyric = await readEmbeddedLyric(musicInfo.meta.filePath).catch(() => '')
-  const source: LX.Music.LyricSource = embeddedLyric.trim() ? 'embedded' : 'lrc'
-  await updateMusicLyricSource({ listId, musicInfo, source })
-  return result
+export const deleteLrc = async(musicInfo: LX.Music.MusicInfoLocal): Promise<boolean> => {
+  const deleted = await deleteLrcFile(musicInfo.meta.filePath)
+  if (deleted) await clearMusicLyric(musicInfo)
+  await refreshPlayingLyric(musicInfo)
+  return deleted
 }

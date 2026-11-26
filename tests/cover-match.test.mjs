@@ -10,7 +10,7 @@
  *    RN FileSystem.rename(path, name) 的同目录改名语义、ENOSPC/EPERM 故障注入）；
  * 3. 用虚拟 POSIX 路径（/work/...、/app/cache）驱动真实 coverFile.ts，避免 Windows 盘符影响路径判定；
  * 4. 覆盖契约 §4 A1/A3/A4：图片 magic/尺寸/体积、评分/去重/排序、路径四类、
- *    首次写/覆盖/跨扩展名/已有 .bak 暂存/写入失败恢复/暂存失败/回退/仅 .bak/非法输入/无 tmp 残留/音频不变。
+ *    首次写/覆盖/跨扩展名/写入失败/删除/非法输入/无 tmp 残留/音频不变。
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -75,6 +75,7 @@ copyModule('utils/mediaMatch/query.ts')
 copyModule('utils/coverMatch/image.ts')
 copyModule('utils/coverMatch/score.ts')
 copyModule('utils/localPathCheck.ts')
+copyModule('utils/sidecarWrite.ts')
 copyModule('utils/lrcFile.ts')
 copyModule('utils/coverFile.ts')
 
@@ -397,7 +398,6 @@ const pngBackupPath = `${pngPath}.bak`
 
 check('getImagePath（音频扩展名剥离）', coverFile.getImagePath(audioPath, 'jpg'), jpgPath)
 check('getImagePath（无扩展名）', coverFile.getImagePath(`${firstDir}/NoExt`, 'png'), `${firstDir}/NoExt.png`)
-check('getCoverBackupPath', coverFile.getCoverBackupPath(audioPath, 'jpg'), jpgBackupPath)
 check('isAudioFilePath 真实音频 = true', await coverFile.isAudioFilePath(audioPath), true)
 check('isAudioFilePath 不存在 = false', await coverFile.isAudioFilePath(`${firstDir}/missing.mp3`), false)
 check('isAudioFilePath 相对路径 = false', await coverFile.isAudioFilePath('Artist - Song.flac'), false)
@@ -408,11 +408,11 @@ check('isAudioFilePath .jpg = false', await coverFile.isAudioFilePath(`${firstDi
 await fsShim.writeFile(`${firstDir}/Upper.MP3`, 'upper-audio')
 check('isAudioFilePath 其它音频扩展名 = true', await coverFile.isAudioFilePath(`${firstDir}/Upper.MP3`), true)
 check('初始无同名图', await coverFile.getCoverImagePathIfExists(audioPath), null)
-check('无效路径状态为空', await coverFile.getCoverState(`${firstDir}/missing.mp3`), { imageExists: false, backupExists: false })
+check('无效路径状态为空', await coverFile.getCoverState(`${firstDir}/missing.mp3`), { imageExists: false })
 
 const firstJpeg = makeJpeg(500, 500, 1)
 const firstApply = await coverFile.applyCoverImage(audioPath, firstJpeg)
-check('首次写入 JPEG → 同名 .jpg', firstApply, { imagePath: jpgPath, format: 'jpg', backupCreated: false })
+check('首次写入 JPEG → 同名 .jpg', firstApply, { imagePath: jpgPath, format: 'jpg' })
 check('首次写入不产生备份', await fsShim.existsFile(jpgBackupPath), false)
 check('首次写入内容正确', await fsShim.readFile(jpgPath, 'base64'), firstJpeg.toString('base64'))
 check('首次写入无 tmp 残留', fs.readdirSync(realOf(firstDir)).filter(name => name.endsWith('.tmp')), [])
@@ -426,195 +426,67 @@ check('状态：格式 jpg', stateAfterFirst.imageFormat, 'jpg')
 check('状态：图片路径', stateAfterFirst.imagePath, jpgPath)
 check('状态：图片体积', stateAfterFirst.imageSize, firstJpeg.length)
 check('状态：mtime 数字', typeof stateAfterFirst.imageMtime, 'number')
-check('状态：无备份', stateAfterFirst.backupExists, false)
 check('首次写入后音频内容未变', await fsShim.readFile(audioPath, 'base64'), audioBase64Before)
 check('首次写入后音频 mtime 未变', (await fsShim.stat(audioPath)).lastModified, audioMtimeBefore)
 
-console.log('\n== A4 coverFile：覆盖只备份第一次 + 回退 ==')
-await fsShim.writeFile(jpgPath, 'original-jpg')
+console.log('\n== 同名封面覆盖和删除 ==')
 const secondJpeg = makeJpeg(600, 600, 2)
-const secondApply = await coverFile.applyCoverImage(audioPath, secondJpeg)
-check('已存在 jpg 先备份', secondApply.backupCreated, true)
-check('备份保留原始内容', await fsShim.readFile(jpgBackupPath, 'utf8'), 'original-jpg')
-check('新 jpg 写入成功', await fsShim.readFile(jpgPath, 'base64'), secondJpeg.toString('base64'))
-const thirdJpeg = makeJpeg(500, 500, 3)
-const thirdApply = await coverFile.applyCoverImage(audioPath, thirdJpeg)
-check('已有 .bak 时不再覆盖备份', thirdApply.backupCreated, false)
-check('备份内容保持不变', await fsShim.readFile(jpgBackupPath, 'utf8'), 'original-jpg')
-check('当前 jpg 被覆盖', await fsShim.readFile(jpgPath, 'base64'), thirdJpeg.toString('base64'))
-check('覆盖后无 tmp 残留', fs.readdirSync(realOf(firstDir)).filter(name => name.endsWith('.tmp')), [])
-check('回退成功', await coverFile.rollbackCover(audioPath), true)
-check('回退恢复原始备份', await fsShim.readFile(jpgPath, 'utf8'), 'original-jpg')
-check('回退后 .bak 消失', await fsShim.existsFile(jpgBackupPath), false)
-check('回退后无 rollback 临时文件', fs.readdirSync(realOf(firstDir)).filter(name => name.endsWith('.tmp')), [])
-check('无备份时回退返回 false', await coverFile.rollbackCover(audioPath), false)
+await coverFile.applyCoverImage(audioPath, secondJpeg)
+check('覆盖同名 JPEG', await fsShim.readFile(jpgPath, 'base64'), secondJpeg.toString('base64'))
+check('覆盖不产生备份', await fsShim.existsFile(jpgBackupPath), false)
 
-console.log('\n== A4 coverFile：跨扩展名 PNG 覆盖与回退 ==')
-await fsShim.writeFile(jpgPath, 'legacy-jpg')
-const pngData = makePng(600, 600, 1)
-const pngApply = await coverFile.applyCoverImage(audioPath, pngData)
-check('PNG 写入 .png', pngApply, { imagePath: pngPath, format: 'png', backupCreated: true })
-check('旧 jpg 备份为 jpg.bak', await fsShim.readFile(jpgBackupPath, 'utf8'), 'legacy-jpg')
-check('旧 jpg 不再可见', await fsShim.existsFile(jpgPath), false)
-check('PNG 覆盖不产生 png.bak', await fsShim.existsFile(pngBackupPath), false)
-check('新 png 内容正确', await fsShim.readFile(pngPath, 'base64'), pngData.toString('base64'))
-const pngState = await coverFile.getCoverState(audioPath)
-check('状态：当前可见图为 png', pngState.imageFormat, 'png')
-check('状态：备份存在（jpg.bak）', pngState.backupExists, true)
-check('跨扩展名回退成功', await coverFile.rollbackCover(audioPath), true)
-check('回退后 png 被删除', await fsShim.existsFile(pngPath), false)
-check('回退恢复旧 jpg', await fsShim.readFile(jpgPath, 'utf8'), 'legacy-jpg')
-check('回退后 jpg.bak 消失', await fsShim.existsFile(jpgBackupPath), false)
-
-console.log('\n== A4 coverFile：QA Q1 已有 jpg.bak 时跨扩展名暂存 ==')
-const q1Dir = '/work/q1'
-resetDir(q1Dir)
-const q1Audio = `${q1Dir}/Song.mp3`
-await fsShim.writeFile(q1Audio, 'audio-q1')
-const q1Jpg = `${q1Dir}/Song.jpg`
-const q1Png = `${q1Dir}/Song.png`
-const q1JpgBak = `${q1Jpg}.bak`
-const q1StageTmp = `${q1Jpg}.bak.replaced.tmp`
-await fsShim.writeFile(q1Jpg, 'current-jpg-A')
-await fsShim.writeFile(q1JpgBak, 'older-jpg-bak-B')
-const q1PngData = makePng(600, 600, 9)
-const q1Apply = await coverFile.applyCoverImage(q1Audio, q1PngData)
-check('jpg+jpg.bak 已存在时应用 png 成功', q1Apply, { imagePath: q1Png, format: 'png', backupCreated: false })
-check('旧 jpg 被移走（仅 png 可见）', await fsShim.existsFile(q1Jpg), false)
-check('新 png 内容正确', await fsShim.readFile(q1Png, 'base64'), q1PngData.toString('base64'))
-check('旧 jpg.bak 保留不动', await fsShim.readFile(q1JpgBak, 'utf8'), 'older-jpg-bak-B')
-check('无 .bak.replaced.tmp 残留', await fsShim.existsFile(q1StageTmp), false)
-const q1State = await coverFile.getCoverState(q1Audio)
-check('状态：可见图为 png（不再被 jpg 遮住）', q1State.imageFormat, 'png')
-check('该场景回退成功', await coverFile.rollbackCover(q1Audio), true)
-check('回退恢复 jpg.bak 内容', await fsShim.readFile(q1Jpg, 'utf8'), 'older-jpg-bak-B')
-check('回退清理新 png', await fsShim.existsFile(q1Png), false)
-check('回退后 jpg.bak 被删除', await fsShim.existsFile(q1JpgBak), false)
-check('Q1 场景无残留 tmp', fs.readdirSync(realOf(q1Dir)).filter(name => name.endsWith('.tmp')), [])
-
-console.log('\n== A4 coverFile：已有 .bak 时 rename 不能覆盖 → unlink 重试 ==')
-const retryDir = '/work/retry'
-resetDir(retryDir)
-const retryAudio = `${retryDir}/Song.mp3`
-await fsShim.writeFile(retryAudio, 'audio-retry')
-const retryJpg = `${retryDir}/Song.jpg`
-const retryJpgBak = `${retryJpg}.bak`
-await fsShim.writeFile(retryJpg, 'old-jpg')
-await fsShim.writeFile(retryJpgBak, 'first-backup')
-const retryJpeg = makeJpeg(700, 700, 5)
-fsShim.failureHooks.renameNoOverwrite = true
-try {
-  const retryApply = await coverFile.applyCoverImage(retryAudio, retryJpeg)
-  check('rename 不可覆盖时 unlink 重试写入成功', retryApply.backupCreated, false)
-  check('重试后 jpg 为新内容', await fsShim.readFile(retryJpg, 'base64'), retryJpeg.toString('base64'))
-  check('重试后旧 .bak 不动', await fsShim.readFile(retryJpgBak, 'utf8'), 'first-backup')
-  check('重试后无 tmp 残留', fs.readdirSync(realOf(retryDir)).filter(name => name.endsWith('.tmp')), [])
-  check('回退时 rename 不可覆盖也重试成功', await coverFile.rollbackCover(retryAudio), true)
-  check('回退恢复备份内容', await fsShim.readFile(retryJpg, 'utf8'), 'first-backup')
-  check('回退后无 .bak', await fsShim.existsFile(retryJpgBak), false)
-} finally {
-  fsShim.failureHooks.renameNoOverwrite = false
-}
-
-console.log('\n== A4 coverFile：写入失败恢复（ENOSPC / 权限） ==')
-const failDir = '/work/fail'
-resetDir(failDir)
-const failAudio = `${failDir}/Song.mp3`
-await fsShim.writeFile(failAudio, 'audio-fail')
-const failJpg = `${failDir}/Song.jpg`
-const failJpgBak = `${failJpg}.bak`
-await fsShim.writeFile(failJpg, 'keep-me')
-await withHook('writeFile', () => makeErr('ENOSPC', 'no space left on device'), async() => {
-  await checkThrowsCode('写入失败抛 disk_full', () => coverFile.applyCoverImage(failAudio, makeJpeg(500, 500, 7)), 'disk_full')
+const pngData = makePng(600, 600, 4)
+await withHook('writeFile', ({ path }) => path === pngPath + '.tmp' ? makeErr('ENOSPC') : null, async() => {
+  await checkThrowsCode('写入失败抛 disk_full', () => coverFile.applyCoverImage(audioPath, pngData), 'disk_full')
 })
-check('失败后原 jpg 恢复', await fsShim.readFile(failJpg, 'utf8'), 'keep-me')
-check('失败后不残留备份', await fsShim.existsFile(failJpgBak), false)
-check('失败后不残留临时文件', fs.readdirSync(realOf(failDir)).filter(name => name.endsWith('.tmp')), [])
+check('写入失败时当前 JPEG 仍可用', await fsShim.readFile(jpgPath, 'base64'), secondJpeg.toString('base64'))
+check('写入失败后无临时文件', await fsShim.existsFile(pngPath + '.tmp'), false)
 
-const permDir = '/work/perm'
-resetDir(permDir)
-const permAudio = `${permDir}/Song.mp3`
-await fsShim.writeFile(permAudio, 'audio-perm')
-const permJpg = `${permDir}/Song.jpg`
-await fsShim.writeFile(permJpg, 'perm-keep')
-await withHook('writeFile', () => makeErr('EPERM', 'operation not permitted'), async() => {
-  await checkThrowsCode('权限失败抛 no_permission', () => coverFile.applyCoverImage(permAudio, makeJpeg(500, 500, 11)), 'no_permission')
+check('切换到 PNG', await coverFile.applyCoverImage(audioPath, pngData), { imagePath: pngPath, format: 'png' })
+check('旧 JPEG 已删除', await fsShim.existsFile(jpgPath), false)
+check('PNG 文件为当前封面', (await coverFile.getCoverState(audioPath)).imagePath, pngPath)
+check('切换格式不创建备份', await fsShim.existsFile(jpgBackupPath) || await fsShim.existsFile(pngBackupPath), false)
+
+await fsShim.writeFile(jpgPath, secondJpeg.toString('base64'), 'base64')
+await fsShim.writeFile(jpgBackupPath, 'legacy-backup')
+check('删除同名封面', await coverFile.deleteCover(audioPath), true)
+check('JPEG 和 PNG 均已删除', await Promise.all([fsShim.existsFile(jpgPath), fsShim.existsFile(pngPath)]), [false, false])
+check('旧备份不会被读取', await coverFile.getCoverState(audioPath), { imageExists: false })
+check('重复删除无效果', await coverFile.deleteCover(audioPath), false)
+check('删除后可重新匹配', await coverFile.applyCoverImage(audioPath, firstJpeg), { imagePath: jpgPath, format: 'jpg' })
+await withHook('unlink', ({ path }) => path === jpgPath ? makeErr('EPERM') : null, async() => {
+  await checkThrowsCode('删除权限不足时报告错误', () => coverFile.deleteCover(audioPath), 'no_permission')
 })
-check('权限失败后原 jpg 不变', await fsShim.readFile(permJpg, 'utf8'), 'perm-keep')
-check('权限失败后无 .bak', await fsShim.existsFile(`${permJpg}.bak`), false)
+check('删除失败后文件仍存在', await fsShim.existsFile(jpgPath), true)
+fs.mkdirSync(realOf(pngPath))
+fs.writeFileSync(path.join(realOf(pngPath), 'keep.txt'), 'keep')
+check('删除封面时跳过同名目录', await coverFile.deleteCover(audioPath), true)
+check('同名目录内容仍在', fs.readFileSync(path.join(realOf(pngPath), 'keep.txt'), 'utf8'), 'keep')
 
-const renameDir = '/work/renamefail'
-resetDir(renameDir)
-const renameAudio = `${renameDir}/Song.mp3`
-await fsShim.writeFile(renameAudio, 'audio-rename')
-const renameJpg = `${renameDir}/Song.jpg`
-await fsShim.writeFile(renameJpg, 'rename-keep')
-await withHook('rename', () => makeErr('EPERM', 'operation not permitted'), async() => {
-  await checkThrowsCode('备份 rename 失败抛 no_permission', () => coverFile.applyCoverImage(renameAudio, makeJpeg(500, 500, 12)), 'no_permission')
-})
-check('rename 失败后原 jpg 不变', await fsShim.readFile(renameJpg, 'utf8'), 'rename-keep')
-check('rename 失败后无 .bak', await fsShim.existsFile(`${renameJpg}.bak`), false)
-check('rename 失败后无 tmp', fs.readdirSync(realOf(renameDir)).filter(name => name.endsWith('.tmp')), [])
-
-console.log('\n== A4 coverFile：暂存另一扩展名旧图后写入失败 ==')
-const stageDir = '/work/stagefail'
-resetDir(stageDir)
-const stageAudio = `${stageDir}/Song.mp3`
-await fsShim.writeFile(stageAudio, 'audio-stage-fail')
-const stageJpg = `${stageDir}/Song.jpg`
-const stageJpgBak = `${stageJpg}.bak`
-await fsShim.writeFile(stageJpg, 'current-jpg-C')
-await fsShim.writeFile(stageJpgBak, 'older-jpg-bak-D')
-await withHook('writeFile', () => makeErr('ENOSPC', 'no space left on device'), async() => {
-  await checkThrowsCode('暂存旧图后写入失败抛 disk_full', () => coverFile.applyCoverImage(stageAudio, makePng(600, 600, 10)), 'disk_full')
-})
-check('失败后旧 jpg 改回原名', await fsShim.readFile(stageJpg, 'utf8'), 'current-jpg-C')
-check('失败后不残留新 png', await fsShim.existsFile(`${stageDir}/Song.png`), false)
-check('失败后不残留 png.tmp', fs.readdirSync(realOf(stageDir)).filter(name => name.endsWith('.png.tmp')), [])
-check('失败后不残留 .bak.replaced.tmp', await fsShim.existsFile(`${stageJpg}.bak.replaced.tmp`), false)
-check('失败后旧 jpg.bak 保持不动', await fsShim.readFile(stageJpgBak, 'utf8'), 'older-jpg-bak-D')
-
-console.log('\n== A4 coverFile：回退失败安全 + 仅 .bak + 非法输入 ==')
-const rbDir = '/work/rollbackfail'
-resetDir(rbDir)
-const rbAudio = `${rbDir}/Song.mp3`
-await fsShim.writeFile(rbAudio, 'audio-rb')
-const rbJpg = `${rbDir}/Song.jpg`
-const rbJpgBak = `${rbJpg}.bak`
-await fsShim.writeFile(rbJpg, 'rb-original')
-const rbJpeg = makeJpeg(600, 600, 8)
-await coverFile.applyCoverImage(rbAudio, rbJpeg)
-check('回退失败测试前备份存在', await fsShim.existsFile(rbJpgBak), true)
-const currentJpgBeforeRollback = await fsShim.readFile(rbJpg, 'base64')
-await withHook('rename', () => makeErr('EPERM', 'operation not permitted'), async() => {
-  await checkThrowsCode('回退 rename 失败抛 no_permission', () => coverFile.rollbackCover(rbAudio), 'no_permission')
-})
-check('回退失败时当前图未丢', await fsShim.readFile(rbJpg, 'base64'), currentJpgBeforeRollback)
-check('回退失败时备份保留', await fsShim.existsFile(rbJpgBak), true)
-check('回退失败不残留 rollback 临时文件', fs.readdirSync(realOf(rbDir)).filter(name => name.endsWith('.tmp')), [])
-check('回退可重试并成功', await coverFile.rollbackCover(rbAudio), true)
-check('回退后恢复原始备份内容', await fsShim.readFile(rbJpg, 'utf8'), 'rb-original')
-
-const onlyBakDir = '/work/onlybak'
-resetDir(onlyBakDir)
-const onlyBakAudio = `${onlyBakDir}/Song.mp3`
-await fsShim.writeFile(onlyBakAudio, 'audio-onlybak')
-const onlyBakJpg = `${onlyBakDir}/Song.jpg`
-const onlyBakJpgBak = `${onlyBakJpg}.bak`
-await fsShim.writeFile(onlyBakJpgBak, 'only-backup')
-const onlyBakState = await coverFile.getCoverState(onlyBakAudio)
-check('仅 .bak：无图片', onlyBakState.imageExists, false)
-check('仅 .bak：备份存在', onlyBakState.backupExists, true)
-check('仅 .bak：回退成功', await coverFile.rollbackCover(onlyBakAudio), true)
-check('仅 .bak：恢复为 jpg', await fsShim.readFile(onlyBakJpg, 'utf8'), 'only-backup')
-check('仅 .bak：回退后备份删除', await fsShim.existsFile(onlyBakJpgBak), false)
+console.log('\n== 同名歌词覆盖和删除 ==')
+const lrcPath = lrcFile.getLrcFilePath(audioPath)
+const upperLrcPath = lrcPath.slice(0, -4) + '.LRC'
+const lrcBackupPath = lrcPath + '.bak'
+check('首次写入返回同名 LRC 路径', await lrcFile.writeLrcFile(audioPath, 'first lyric'), { lrcPath })
+await lrcFile.writeLrcFile(audioPath, 'matched lyric')
+check('直接覆盖旧歌词', await fsShim.readFile(lrcPath, 'utf8'), 'matched lyric\n')
+check('覆盖不产生备份', await fsShim.existsFile(lrcBackupPath), false)
+await fsShim.unlink(lrcPath)
+await fsShim.writeFile(upperLrcPath, 'uppercase lyric')
+await fsShim.writeFile(lrcBackupPath, 'legacy-backup')
+check('能识别大写 LRC', (await lrcFile.getLrcState(audioPath)).lrcExists, true)
+check('删除同名歌词', await lrcFile.deleteLrcFile(audioPath), true)
+check('LRC 已被删除', await fsShim.existsFile(upperLrcPath), false)
+check('旧备份不会被读取', await lrcFile.getLrcState(audioPath), { lrcExists: false })
+check('重复删除无效果', await lrcFile.deleteLrcFile(audioPath), false)
+check('删除后可重新匹配', await lrcFile.writeLrcFile(audioPath, 'rematched lyric'), { lrcPath })
 
 const invalidDir = '/work/invalid'
 resetDir(invalidDir)
 const invalidAudio = `${invalidDir}/Song.mp3`
 await fsShim.writeFile(invalidAudio, 'audio-invalid')
 await checkThrowsCode('不存在的音频路径拒绝写入', () => coverFile.applyCoverImage(`${invalidDir}/missing.mp3`, makeJpeg(500, 500, 13)), 'invalid_file')
-await checkThrowsCode('回退不存在的音频路径拒绝', () => coverFile.rollbackCover(`${invalidDir}/missing.mp3`), 'invalid_file')
+await checkThrowsCode('不存在的音频路径拒绝删除', () => coverFile.deleteCover(`${invalidDir}/missing.mp3`), 'invalid_file')
 await checkThrowsCode('像素过小图片拒绝写入（image_invalid）', () => coverFile.applyCoverImage(invalidAudio, makeJpeg(100, 100)), 'image_invalid')
 await checkThrowsCode('超 8MB 图片拒绝写入（image_too_large）', () => coverFile.applyCoverImage(invalidAudio, tooLargeData), 'image_too_large')
 await checkThrowsCode('webp 图片拒绝写入（image_invalid）', () => coverFile.applyCoverImage(invalidAudio, Buffer.from('RIFF\x24\x00\x00\x00WEBPVP8 ', 'binary')), 'image_invalid')

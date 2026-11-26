@@ -7,9 +7,10 @@ import ButtonPrimary from '@/components/common/ButtonPrimary'
 import { useTheme } from '@/store/theme/hook'
 import { useI18n } from '@/lang'
 import { usePlayMusicInfo } from '@/store/player/hook'
+import playerState from '@/store/player/state'
 import { useSettingValue } from '@/store/setting/hook'
 import { getLyricInfo } from '@/core/music/local'
-import { rollbackLrc, updateMusicLyricSource } from '@/core/mediaMatch'
+import { deleteLrc, updateMusicLyricSource } from '@/core/mediaMatch'
 import { getLrcState, type LrcState } from '@/utils/lrcFile'
 import { confirmDialog, toast } from '@/utils/tools'
 import { log } from '@/utils/log'
@@ -42,8 +43,8 @@ export default () => {
 
   useEffect(() => {
     let canceled = false
+    setLrcState(null)
     if (!musicInfo) {
-      setLrcState(null)
       setActualSource(null)
       setHasEditedLyric(false)
       return
@@ -95,36 +96,34 @@ export default () => {
     }
   }
 
-  const handleRollback = async() => {
-    if (!musicInfo || processing) return
-    if (!lrcState?.backupExists) {
-      toast(t('lyrics_match_rollback_unavailable'))
-      return
-    }
-    const confirmed = await confirmDialog({
-      message: t('lyrics_match_rollback_confirm'),
-      confirmButtonText: t('lyrics_match_rollback'),
-    })
-    if (!confirmed) return
-
+  const handleDelete = async() => {
+    if (!musicInfo || processing || !lrcState?.lrcExists) return
     setProcessing(true)
     try {
-      const result = await rollbackLrc({ listId: playMusicInfo.listId, musicInfo })
-      if (!result.restored) {
-        toast(t('lyrics_match_rollback_unavailable'))
-        return
+      const confirmed = await confirmDialog({
+        message: t('lyrics_match_delete_confirm'),
+        confirmButtonText: t('lyrics_match_delete'),
+      })
+      if (!confirmed) return
+
+      const deleted = await deleteLrc(musicInfo)
+      const [state, info] = await Promise.all([
+        getLrcState(musicInfo.meta.filePath),
+        getLyricInfo({ musicInfo, isRefresh: false }),
+      ])
+      if (playerState.playMusicInfo.musicInfo?.id === musicInfo.id) {
+        setLrcState(state)
+        setActualSource(info.source ?? null)
+        setHasEditedLyric(!!info.lyric?.trim() && info.source == null)
       }
-      toast(t('lyrics_match_rollback_success'))
-      setLrcState(await getLrcState(musicInfo.meta.filePath))
+      toast(deleted ? t('lyrics_match_delete_success') : t('lyrics_match_delete_unavailable'))
     } catch (error: any) {
-      log.warn(`rollback lrc failed: ${error?.message ?? error}`)
+      log.warn(`delete lrc failed: ${error?.message ?? error}`)
       const code = error instanceof Error && 'code' in error ? String(error.code) : ''
       const message = code === 'permission'
         ? t('lyrics_match_error_permission')
-        : code === 'no_space'
-          ? t('lyrics_match_error_no_space')
-          : error?.message ?? String(error)
-      toast(t('lyrics_match_rollback_failed', { message }), 'long')
+        : error?.message ?? String(error)
+      toast(t('lyrics_match_delete_failed', { message }), 'long')
     } finally {
       setProcessing(false)
     }
@@ -159,12 +158,9 @@ export default () => {
       {preferredSource === 'lrc' && lrcState && !lrcState.lrcExists
         ? <Text size={12} color={theme['c-primary-font']}>{t('lyrics_match_source_lrc_missing')}</Text>
         : null}
-      <ButtonPrimary disabled={!lrcState?.backupExists || processing} onPress={() => { void handleRollback() }}>
-        {t('lyrics_match_rollback')}
+      <ButtonPrimary disabled={!lrcState?.lrcExists || processing} onPress={() => { void handleDelete() }}>
+        {t('lyrics_match_delete')}
       </ButtonPrimary>
-      {lrcState && !lrcState.backupExists
-        ? <Text size={12} color={theme['c-font-label']}>{t('lyrics_match_rollback_unavailable')}</Text>
-        : null}
     </View>
   )
 }

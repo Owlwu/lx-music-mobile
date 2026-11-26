@@ -486,10 +486,10 @@ const resetBatchFixtures = () => {
   globalThis.__media = {
     searchLyrics: async() => [],
     getCandidateLyric: async() => null,
-    applyLrcToMusic: async() => ({ lrcPath: '/music/song.lrc', backupCreated: false }),
+    applyLrcToMusic: async() => ({ lrcPath: '/music/song.lrc' }),
     updateMusicLyricSource: async() => {},
     searchCoverCandidates: async() => [],
-    applyCoverCandidate: async() => ({ imagePath: '/music/song.jpg', format: 'jpg', backupCreated: false }),
+    applyCoverCandidate: async() => ({ imagePath: '/music/song.jpg', format: 'jpg' }),
     refreshPlayingCover: async() => true,
   }
 }
@@ -648,7 +648,7 @@ globalThis.__states['/music/Cover.mp3'] = makeFileState({ hasSidecarLyric: true 
 globalThis.__mediaImpl.searchCoverCandidates = async() => ['k0', 'k1', 'k2', 'k3'].map(makeCoverCandidate)
 globalThis.__mediaImpl.applyCoverCandidate = async({ candidate }) => {
   if (candidate.id !== 'k2') throw new Error('download failed')
-  return { imagePath: '/music/Cover.jpg', format: 'jpg', backupCreated: false }
+  return { imagePath: '/music/Cover.jpg', format: 'jpg' }
 }
 const coverSummary = await batch.runBatchMatch({ listId: 'list5', intervalMs: 0 })
 check('封面按顺序重试到第 3 个成功', mediaCalls.applyCover, ['cover:k0', 'cover:k1', 'cover:k2'])
@@ -687,7 +687,7 @@ globalThis.__mediaImpl.searchLyrics = async() => [makeLyricCandidate('between-ly
 globalThis.__mediaImpl.getCandidateLyric = async() => ({ lyric: '[00:03.00]ok', isSynced: true })
 globalThis.__mediaImpl.applyLrcToMusic = async() => {
   betweenController.abort()
-  return { lrcPath: '/music/Between.lrc', backupCreated: false }
+  return { lrcPath: '/music/Between.lrc' }
 }
 const betweenSummary = await batch.runBatchMatch({ listId: 'list8', signal: betweenController.signal, intervalMs: 0 })
 check('歌词阶段取消后不再进入封面阶段', mediaCalls.coverSearch, [])
@@ -705,7 +705,7 @@ globalThis.__mediaImpl.searchLyrics = async() => [makeLyricCandidate('lyric')]
 globalThis.__mediaImpl.getCandidateLyric = async() => ({ lyric: '[00:04.00]ok', isSynced: true })
 globalThis.__mediaImpl.applyLrcToMusic = async() => {
   songsController.abort()
-  return { lrcPath: '/music/song.lrc', backupCreated: false }
+  return { lrcPath: '/music/song.lrc' }
 }
 const songsSummary = await batch.runBatchMatch({ listId: 'list9', signal: songsController.signal, intervalMs: 0 })
 check('取消后不再开始下一首', mediaCalls.lyricSearch, ['first'])

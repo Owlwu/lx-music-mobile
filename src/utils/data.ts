@@ -189,6 +189,10 @@ export const clearLyric = async(keys?: string[]) => {
   await removeDataMultiple(keys)
 }
 export const saveEditedLyric = async(musicInfo: LX.Music.MusicInfo, lyricInfo: LX.Music.LyricInfo) => saveData(`${storageDataPrefix.lyric}${musicInfo.id}_edited`, lyricInfo)
+export const clearMusicLyric = async(musicInfo: LX.Music.MusicInfo) => {
+  const key = `${storageDataPrefix.lyric}${musicInfo.id}`
+  await removeDataMultiple([key, `${key}_edited`])
+}
 export const clearEditedLyric = async() => {
   let keys = (await getAllKeys()).filter(key => key.startsWith(storageDataPrefix.lyric) && key.endsWith('_edited'))
   await removeDataMultiple(keys)

@@ -63,7 +63,7 @@ export default async(setting: LX.AppSetting) => {
 
   const updatePic = () => {
     if (!settingState.setting['player.isShowNotificationImage']) return
-    if (playerState.playMusicInfo.musicInfo && playerState.musicInfo.pic) {
+    if (playerState.playMusicInfo.musicInfo) {
       delayUpdateMusicInfo(playerState.musicInfo)
     }
   }

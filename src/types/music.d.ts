@@ -138,7 +138,6 @@ declare namespace LX {
       imagePath?: string
       imageFormat?: 'jpg' | 'png'
       imageExists: boolean
-      backupExists: boolean
       imageSize?: number
       imageMtime?: number
     }
@@ -151,7 +150,6 @@ declare namespace LX {
       imagePath: string
       format: 'jpg' | 'png'
       /** 本次是否新建了 `.bak` */
-      backupCreated: boolean
     }
 
   }

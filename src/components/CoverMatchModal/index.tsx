@@ -13,7 +13,7 @@ import { useI18n } from '@/lang'
 import { confirmDialog, createStyle, toast } from '@/utils/tools'
 import { useUnmounted, useWindowSize } from '@/utils/hooks'
 import { existsFile } from '@/utils/fs'
-import { applyCoverCandidate, getCoverState, refreshPlayingCover, rollbackCover, searchCoverCandidates } from '@/core/coverMatch'
+import { applyCoverCandidate, getCoverState, refreshPlayingCover, deleteCover, searchCoverCandidates } from '@/core/coverMatch'
 import { checkCoverMatchablePath } from '@/utils/coverFile'
 import { getFileStem, isInstrumentalName, parseIntervalToSec } from '@/utils/mediaMatch/query'
 import { formatPlayTime2 } from '@/utils/common'
@@ -22,7 +22,7 @@ import CandidateItem from './CandidateItem'
 
 type SearchState = 'idle' | 'loading' | 'success' | 'error'
 
-const emptyCoverState: LX.Music.CoverState = { imageExists: false, backupExists: false }
+const emptyCoverState: LX.Music.CoverState = { imageExists: false }
 
 export interface CoverMatchModalType {
   show: (info: { musicInfo: LX.Music.MusicInfo, listId: string }) => void
@@ -47,7 +47,7 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
   const [selected, setSelected] = useState<LX.Music.CoverCandidate | null>(null)
   const [coverState, setCoverState] = useState<LX.Music.CoverState>(emptyCoverState)
   const [applying, setApplying] = useState(false)
-  const [rollingBack, setRollingBack] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   // 候选列表实测高度：按内容收缩、最多 resultMaxHeight，避免列表内容把预览/按钮顶出弹窗
   const [listHeight, setListHeight] = useState(0)
 
@@ -65,7 +65,7 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
     setSelected(null)
     setCoverState(emptyCoverState)
     setApplying(false)
-    setRollingBack(false)
+    setDeleting(false)
     setListHeight(0)
   }
 
@@ -140,18 +140,17 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
   const handleApply = async() => {
     const musicInfo = musicInfoRef.current
     const candidate = selected
-    if (!musicInfo || !candidate || applying) return
-
-    if (coverState.imageExists) {
-      const confirmed = await confirmDialog({
-        message: t('cover_match_replace_confirm'),
-        confirmButtonText: t('cover_match_apply'),
-      })
-      if (!confirmed) return
-    }
+    if (!musicInfo || !candidate || applying || deleting) return
 
     setApplying(true)
     try {
+      if (coverState.imageExists) {
+        const confirmed = await confirmDialog({
+          message: t('cover_match_replace_confirm'),
+          confirmButtonText: t('cover_match_apply'),
+        })
+        if (!confirmed) return
+      }
       const result = await applyCoverCandidate({ musicInfo, candidate })
       const fileName = result.imagePath.substring(result.imagePath.lastIndexOf('/') + 1)
       toast(t('cover_match_apply_success', { file: fileName }), 'long')
@@ -167,33 +166,27 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
     }
   }
 
-  const handleRollback = async() => {
+  const handleDelete = async() => {
     const musicInfo = musicInfoRef.current
-    if (!musicInfo || rollingBack) return
+    if (!musicInfo || !coverState.imageExists || applying || deleting) return
 
-    const confirmed = await confirmDialog({
-      message: t('cover_match_rollback_confirm'),
-      confirmButtonText: t('cover_match_rollback'),
-    })
-    if (!confirmed) return
-
-    setRollingBack(true)
+    setDeleting(true)
     try {
-      const restored = await rollbackCover(musicInfo)
-      if (restored) {
-        toast(t('cover_match_rollback_success'), 'long')
-      } else {
-        toast(t('cover_match_rollback_none'))
-      }
-      await refreshPlayingCover(musicInfo).catch((error: any) => {
-        log.warn(`refresh playing cover failed: ${error?.message ?? error}`)
+      const confirmed = await confirmDialog({
+        message: t('cover_match_delete_confirm'),
+        confirmButtonText: t('cover_match_delete'),
       })
-      if (restored) await refreshCoverState(musicInfo)
+      if (!confirmed) return
+
+      const deleted = await deleteCover(musicInfo)
+      await refreshPlayingCover(musicInfo)
+      toast(deleted ? t('cover_match_delete_success') : t('cover_match_delete_none'))
     } catch (error: any) {
-      log.warn(`rollback cover failed: ${error?.message ?? error}`)
-      toast(t('cover_match_rollback_failed', { message: error?.message ?? String(error) }), 'long')
+      log.warn(`delete cover failed: ${error?.message ?? error}`)
+      toast(getErrorMessage(error), 'long')
     } finally {
-      if (!isUnmounted.current) setRollingBack(false)
+      if (musicInfoRef.current === musicInfo) await refreshCoverState(musicInfo)
+      if (!isUnmounted.current) setDeleting(false)
     }
   }
 
@@ -251,8 +244,8 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
     ? isInstrumentalName(musicInfo.name) || isInstrumentalName(getFileStem(musicInfo.meta.filePath))
     : false
   const selectedInstrumental = isInstrumentalName(selected?.name)
-  const canApply = !!selected && !applying && !rollingBack && searchState !== 'loading'
-  const canRollback = coverState.backupExists && !applying && !rollingBack
+  const canApply = !!selected && !applying && !deleting && searchState !== 'loading'
+  const canDelete = coverState.imageExists && !applying && !deleting
   // 候选列表固定最大高度（约屏幕 30%），避免与预览区互相抢 flex 空间
   const resultMaxHeight = Math.max(96, Math.round(windowSize.height * 0.30))
   const previewSize = Math.min(
@@ -360,13 +353,13 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
               <View style={styles.footerRow}>
                 <View style={styles.footerLeft}>
                   {
-                    coverState.backupExists
+                    coverState.imageExists
                       ? <Button
                           style={{ ...styles.footerBtn, backgroundColor: theme['c-button-background'] }}
-                          disabled={!canRollback}
-                          onPress={() => { void handleRollback() }}
+                          disabled={!canDelete}
+                          onPress={() => { void handleDelete() }}
                         >
-                          <Text color={theme['c-button-font']}>{rollingBack ? t('cover_match_rolling_back') : t('cover_match_rollback')}</Text>
+                          <Text color={theme['c-button-font']}>{deleting ? t('cover_match_deleting') : t('cover_match_delete')}</Text>
                         </Button>
                       : null
                   }
@@ -374,7 +367,7 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
                 <View style={styles.footerRight}>
                   <Button
                     style={{ ...styles.footerBtn, backgroundColor: theme['c-button-background'] }}
-                    disabled={applying || rollingBack}
+                    disabled={applying || deleting}
                     onPress={() => { dialogRef.current?.setVisible(false) }}
                   >
                     <Text color={theme['c-button-font']}>{t('cancel')}</Text>

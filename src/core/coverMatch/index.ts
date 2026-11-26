@@ -8,7 +8,7 @@ import {
   applyCoverImage,
   checkCoverMatchablePath,
   getCoverState as getCoverFileState,
-  rollbackCover as rollbackCoverFile,
+  deleteCover as deleteCoverFile,
   CoverFileError,
 } from '@/utils/coverFile'
 import { MAX_IMAGE_BYTES, validateImageData } from '@/utils/coverMatch/image'
@@ -219,7 +219,7 @@ export interface ApplyCoverCandidateOptions {
 }
 
 /**
- * 应用候选：路径/候选校验 → 下载 → magic/尺寸校验 → 写同名图（备份/原子写由 coverFile 负责）
+ * 应用候选：路径/候选校验 → 下载 → magic/尺寸校验 → 写同名图（由 coverFile 原子替换）
  */
 export const applyCoverCandidate = async({ musicInfo, candidate }: ApplyCoverCandidateOptions): Promise<LX.Music.CoverApplyResult> => {
   const filePath = musicInfo?.meta?.filePath
@@ -238,18 +238,18 @@ export const applyCoverCandidate = async({ musicInfo, candidate }: ApplyCoverCan
 export const getCoverState = async(musicInfo: LX.Music.MusicInfoLocal): Promise<LX.Music.CoverState> => {
   const filePath = musicInfo?.meta?.filePath
   if (!filePath || checkCoverMatchablePath(filePath) !== 'ok') {
-    return { imageExists: false, backupExists: false }
+    return { imageExists: false }
   }
   return getCoverFileState(filePath)
 }
 
 /**
- * 回退到备份封面；路径不可写时直接返回 false（不碰 fs）
+ * 删除同名封面；路径不可写时直接返回 false（不碰 fs）
  */
-export const rollbackCover = async(musicInfo: LX.Music.MusicInfoLocal): Promise<boolean> => {
+export const deleteCover = async(musicInfo: LX.Music.MusicInfoLocal): Promise<boolean> => {
   const filePath = musicInfo?.meta?.filePath
   if (!filePath || checkCoverMatchablePath(filePath) !== 'ok') return false
-  return rollbackCoverFile(filePath)
+  return deleteCoverFile(filePath)
 }
 
 /**
@@ -263,7 +263,6 @@ export const refreshPlayingCover = async(musicInfo?: LX.Music.MusicInfoLocal): P
   try {
     const pic = await getPicPath({ musicInfo: playingInfo, listId: playing.listId })
     if (playerState.playMusicInfo.musicInfo?.id !== playingInfo.id) return false
-    if (!pic) return false
     setMusicInfo({ pic })
     global.app_event.picUpdated()
     return true
