@@ -1,8 +1,11 @@
 import { useRef, useImperativeHandle, forwardRef, useState } from 'react'
-import ConfirmAlert, { type ConfirmAlertType } from '@/components/common/ConfirmAlert'
-import Text from '@/components/common/Text'
-import { View } from 'react-native'
-import { TEMP_FILE_PATH, createStyle, toast } from '@/utils/tools'
+import Dialog, { type DialogType } from '@/components/common/Dialog'
+import MediaAction from '@/components/MediaEdit/Action'
+import { mediaEditStyles } from '@/components/MediaEdit/styles'
+import { ScrollView, View } from 'react-native'
+import { useTheme } from '@/store/theme/hook'
+import { useI18n } from '@/lang'
+import { TEMP_FILE_PATH, toast } from '@/utils/tools'
 import {
   readMetadata,
   readPic,
@@ -28,7 +31,9 @@ export interface MetadataEditProps {
 
 
 export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
-  const alertRef = useRef<ConfirmAlertType>(null)
+  const dialogRef = useRef<DialogType>(null)
+  const t = useI18n()
+  const theme = useTheme()
   const metadataFormRef = useRef<MetadataFormType>(null)
   const filePath = useRef<string>('')
   const metadata = useRef<Metadata>({ ...defaultData })
@@ -37,7 +42,7 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
   const isUnmounted = useUnmounted()
 
   const handleShow = (filePath: string) => {
-    alertRef.current?.setVisible(true)
+    dialogRef.current?.setVisible(true)
     void Promise.all([
       readMetadata(filePath),
       readPic(filePath).catch(() => ''),
@@ -104,38 +109,31 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
       setProcessing(false)
     }
     if (isUpdated) toast(global.i18n.t('metadata_edit_modal_success'), 'long')
-    alertRef.current?.setVisible(false)
+    dialogRef.current?.setVisible(false)
     props.onUpdate(_metadata)
   }
 
   return (
     visible
-      ? <ConfirmAlert
-          ref={alertRef}
-          onConfirm={handleUpdate}
-          confirmText={processing ? global.i18n.t('metadata_edit_modal_processing') : global.i18n.t('metadata_edit_modal_confirm')}
-          disabledConfirm={processing}
+      ? <Dialog
+          appearance="media"
+          ref={dialogRef}
+          title={t('metadata_edit_modal_title')}
+          width="90%"
+          height="78%"
         >
-          <View style={styles.renameContent} onStartShouldSetResponder={() => true}>
-            <Text style={styles.title}>{global.i18n.t('metadata_edit_modal_title')}</Text>
-            <MetadataForm ref={metadataFormRef} />
+          <View style={mediaEditStyles.content}>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <MetadataForm ref={metadataFormRef} />
+            </ScrollView>
+            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-250'] }]}>
+              <MediaAction onPress={() => { dialogRef.current?.setVisible(false) }}>{t('cancel')}</MediaAction>
+              <MediaAction kind="primary" onPress={() => { void handleUpdate() }} disabled={processing}>
+                {processing ? t('metadata_edit_modal_processing') : t('metadata_edit_modal_confirm')}
+              </MediaAction>
+            </View>
           </View>
-        </ConfirmAlert>
+        </Dialog>
       : null
   )
 })
-
-
-const styles = createStyle({
-  renameContent: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexDirection: 'column',
-  },
-  title: {
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-})
-
-

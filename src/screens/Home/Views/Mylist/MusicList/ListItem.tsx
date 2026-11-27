@@ -4,6 +4,7 @@ import { LIST_ITEM_HEIGHT } from '@/config/constant'
 // import { BorderWidths } from '@/theme'
 import { Icon } from '@/components/common/Icon'
 import { createStyle, type RowInfo } from '@/utils/tools'
+import { useI18n } from '@/lang'
 import { useTheme } from '@/store/theme/hook'
 import { scaleSizeH } from '@/utils/pixelRatio'
 import Text from '@/components/common/Text'
@@ -25,6 +26,7 @@ export default memo(({ item, index, activeIndex, onPress, onShowMenu, onLongPres
   isShowInterval: boolean
 }) => {
   const theme = useTheme()
+  const t = useI18n()
 
   const isSelected = selectedList.includes(item)
   // console.log(item.name, selectedList, selectedList.includes(item))
@@ -39,6 +41,7 @@ export default memo(({ item, index, activeIndex, onPress, onShowMenu, onLongPres
     }
   }
   const active = activeIndex == index
+  const activeColor = theme.isDark ? theme['c-font'] : theme['c-primary-dark-500']
 
   const singer = `${item.singer}${isShowAlbumName && item.meta.albumName ? ` · ${item.meta.albumName}` : ''}`
 
@@ -47,29 +50,29 @@ export default memo(({ item, index, activeIndex, onPress, onShowMenu, onLongPres
       <TouchableOpacity style={styles.listItemLeft} onPress={() => { onPress(item, index) }} onLongPress={() => { onLongPress(item, index) }}>
         {
           active
-            ? <Icon style={styles.sn} name="play-outline" size={13} color={theme['c-primary-font']} />
-            : <Text style={styles.sn} size={13} color={theme['c-300']}>{index + 1}</Text>
+            ? <Icon style={styles.sn} name="play-outline" size={13} color={activeColor} />
+            : <Text style={styles.sn} size={13} color={theme['c-700']}>{index + 1}</Text>
         }
         <View style={styles.itemInfo}>
           {/* <View style={styles.listItemTitle}> */}
-          <Text color={active ? theme['c-primary-font'] : theme['c-font']} numberOfLines={1}>{item.name}</Text>
+          <Text color={active ? activeColor : theme['c-font']} numberOfLines={1}>{item.name}</Text>
           {/* </View> */}
           <View style={styles.listItemSingle}>
-            <Badge>{item.source.toUpperCase()}</Badge>
-            <Text style={styles.listItemSingleText} size={11} color={active ? theme['c-primary-alpha-200'] : theme['c-500']} numberOfLines={1}>
+            <Badge color={theme['c-700']}>{item.source.toUpperCase()}</Badge>
+            <Text style={styles.listItemSingleText} size={11} color={theme['c-700']} numberOfLines={1}>
               {singer}
             </Text>
           </View>
         </View>
         {
           isShowInterval ? (
-            <Text size={12} color={active ? theme['c-primary-alpha-400'] : theme['c-250']} numberOfLines={1}>{item.interval}</Text>
+            <Text size={12} color={theme['c-700']} numberOfLines={1}>{item.interval}</Text>
           ) : null
         }
       </TouchableOpacity>
       {/* <View style={styles.listItemRight}> */}
-      <TouchableOpacity onPress={handleShowMenu} ref={moreButtonRef} style={styles.moreButton}>
-        <Icon name="dots-vertical" style={{ color: theme['c-350'] }} size={12} />
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('list_song_more', { name: item.name })} onPress={handleShowMenu} ref={moreButtonRef} style={styles.moreButton}>
+        <Icon name="dots-vertical" style={{ color: theme['c-700'] }} size={12} />
       </TouchableOpacity>
       {/* </View> */}
     </View>

@@ -216,12 +216,14 @@ const downloadCoverImage = async(url: string): Promise<Uint8Array> => {
 export interface ApplyCoverCandidateOptions {
   musicInfo: LX.Music.MusicInfoLocal
   candidate: LX.Music.CoverCandidate
+  onlyIfMissing?: boolean
+  signal?: AbortSignal
 }
 
 /**
  * 应用候选：路径/候选校验 → 下载 → magic/尺寸校验 → 写同名图（由 coverFile 原子替换）
  */
-export const applyCoverCandidate = async({ musicInfo, candidate }: ApplyCoverCandidateOptions): Promise<LX.Music.CoverApplyResult> => {
+export const applyCoverCandidate = async({ musicInfo, candidate, onlyIfMissing, signal }: ApplyCoverCandidateOptions): Promise<LX.Music.CoverApplyResult> => {
   const filePath = musicInfo?.meta?.filePath
   if (!filePath || checkCoverMatchablePath(filePath) !== 'ok') throw new CoverFileError('invalid_file', 'invalid music file path')
   if (!await existsFile(filePath)) throw new CoverFileError('invalid_file', 'music file not found')
@@ -229,7 +231,8 @@ export const applyCoverCandidate = async({ musicInfo, candidate }: ApplyCoverCan
   const coverUrl = getValidatedCoverUrl(candidate)
   const data = await downloadCoverImage(coverUrl)
   validateImageData(data)
-  return applyCoverImage(filePath, data)
+  if (signal?.aborted) throw new Error('aborted')
+  return applyCoverImage(filePath, data, onlyIfMissing)
 }
 
 /**

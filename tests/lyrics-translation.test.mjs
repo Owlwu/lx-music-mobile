@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import Lyric from 'lrc-file-parser'
 
 let passed = 0
 let failed = 0
@@ -521,6 +522,47 @@ check('无扩展段时正文不变', parsedNoExtended.lyric, noExtendedText.trim
 const translationOnlyText = lrcText.buildLrcText({ ...plainCandidate, tlyric })
 const parsedTranslationOnly = parseLyric(translationOnlyText)
 check('只有翻译的扩展段可回读', [parsedTranslationOnly.tlyric, parsedTranslationOnly.rlyric], ['[00:00.000]打上花火\n[00:04.500]那天看见的花的名字\n[00:08.250]我们仍未知晓', undefined])
+
+const mixedTimeCandidate = {
+  ...plainCandidate,
+  lyric: '[00:01.00]作词\n[00:20:49][00:24:03]日文\n[00:30]尾声 [00:40:00]',
+  tlyric: '[00:20:49]中文\n[00:24:03]中文',
+  rlyric: '[00:20.490]nihongo\n[00:24.030]nihongo',
+}
+const mixedTimeLyric = parseLyric(lrcText.buildLrcText(mixedTimeCandidate))
+const playerLyric = new Lyric({})
+playerLyric.setLyric(mixedTimeLyric.lyric, [mixedTimeLyric.tlyric, mixedTimeLyric.rlyric].filter(Boolean))
+check('回读旧外挂歌词后，播放器按毫秒对齐冒号时间戳、中文翻译和罗马音', playerLyric.lines, [
+  { time: 1000, text: '作词', extendedLyrics: [] },
+  { time: 20490, text: '日文', extendedLyrics: ['中文', 'nihongo'] },
+  { time: 24030, text: '日文', extendedLyrics: ['中文', 'nihongo'] },
+  { time: 30000, text: '尾声 [00:40:00]', extendedLyrics: [] },
+])
+const plainMixedTimeLyric = parseLyric(lrcText.buildLrcText({ ...mixedTimeCandidate, tlyric: '', rlyric: '' }))
+check('无扩展段的外挂歌词也转换行首时间戳', plainMixedTimeLyric.lyric, mixedTimeLyric.lyric)
+
+// 暂停时只更新解析出的行，测试环境无需播放计时器。
+fs.writeFileSync(path.join(moduleDir, 'reactHooks.ts'), `
+export const useEffect = () => {}
+export const useState = value => [value, () => {}]
+`, 'utf8')
+fs.writeFileSync(path.join(moduleDir, 'lyricPlugin.ts'), readSrc('plugins/lyric.ts')
+  .replace("from 'react'", "from './reactHooks.ts'")
+  .replace("from 'lrc-file-parser'", `from '${import.meta.resolve('lrc-file-parser')}'`), 'utf8')
+const lyricPlugin = await load('lyricPlugin')
+await lyricPlugin.init()
+lyricPlugin.setLyric('[offset:50]\n[00:10.000]first\n[00:20.000]second\n[00:30.000]last')
+lyricPlugin.seekPaused(20300)
+check('暂停定位选择当前歌词', lyricPlugin.useLrcPlay(false), { line: 1, text: 'second' })
+lyricPlugin.seekPaused(19850)
+check('暂停定位应用文件和播放器偏移', lyricPlugin.useLrcPlay(false), { line: 1, text: 'second' })
+lyricPlugin.seekPaused(19849)
+check('可向前定位回上一句', lyricPlugin.useLrcPlay(false), { line: 0, text: 'first' })
+lyricPlugin.seekPaused(40000)
+check('暂停定位超过末尾时使用末行', lyricPlugin.useLrcPlay(false), { line: 2, text: 'last' })
+lyricPlugin.setLyric('')
+lyricPlugin.seekPaused(10000)
+check('无歌词时暂停定位为空', lyricPlugin.useLrcPlay(false).text, '')
 
 // ---------------------------------------------------------------- §6 接线静态检查
 

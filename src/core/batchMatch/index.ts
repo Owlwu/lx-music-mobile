@@ -7,22 +7,11 @@ import { getLocalMusicFileState, getMissingKinds } from '@/utils/batchMatch/stat
 import { checkCoverMatchablePath } from '@/utils/coverFile'
 import { checkLrcMatchablePath } from '@/utils/lrcFile'
 import { log } from '@/utils/log'
+import { normalizeText } from '@/utils/mediaMatch/normalize'
 
 import { getCoverAttemptIndexes, getLyricAttemptIndexes } from './select'
 
-/**
- * 一键补全缺失歌词/封面（不依赖 React 的批次编排）。
- *
- * 契约（docs/phase6-batch-match-design.md）：
- * - 作用范围只有「当前列表」的本地歌曲；非本地歌曲忽略、不计失败；
- * - 只处理「无内嵌 **且** 无同目录同名文件」的缺失项（judgement 在 `utils/batchMatch/state`）；
- * - 逐首串行：先歌词后封面，每首之间约 200ms；
- * - 歌词：按排序第 1 个可用候选，取词失败沿排序最多再试 4 个 `!instrumental && score >= 0.6`；
- *   封面：按排序第 1 个，写入失败最多再试后续 2 个；
- * - 可取消：外部 AbortSignal 会在每首/每次尝试之间检查，并透传给搜索请求；
- * - 汇总 `lyric/cover/failed/skipped`，单曲异常只计入 failed，不影响后续歌曲。
- */
-
+/** 扫描当前列表，确认待处理项后串行补全高置信候选。 */
 export type BatchMatchPhase = 'scanning' | 'matching'
 
 export interface BatchMatchCounts {
@@ -34,6 +23,8 @@ export interface BatchMatchCounts {
   failed: number
   /** 跳过处理的歌曲数（本地文件不存在 / 路径不可写） */
   skipped: number
+  /** 至少一项需要手动选择的歌曲数 */
+  manual: number
 }
 
 export interface BatchMatchProgress extends BatchMatchCounts {
@@ -53,8 +44,16 @@ export interface BatchMatchResult extends BatchMatchCounts {
   processed: number
 }
 
+export interface BatchMatchReview {
+  total: number
+  lyrics: number
+  covers: number
+  skipped: number
+}
+
 export interface BatchMatchOptions {
   listId: string
+  confirmTargets: (review: BatchMatchReview) => Promise<boolean>
   signal?: AbortSignal
   onProgress?: (progress: BatchMatchProgress) => void
   /** 每首之间的间隔，默认 200ms（契约 §3） */
@@ -67,7 +66,7 @@ interface BatchMatchTarget {
   needCover: boolean
 }
 
-type ItemResult = 'ok' | 'fail' | 'canceled'
+type ItemResult = 'ok' | 'fail' | 'canceled' | 'manual' | 'skipped'
 
 const sleep = async(ms: number): Promise<void> => {
   await new Promise<void>((resolve) => {
@@ -88,10 +87,12 @@ const createEmptyResult = (): BatchMatchResult => ({
   cover: 0,
   failed: 0,
   skipped: 0,
+  manual: 0,
 })
 
 export const runBatchMatch = async({
   listId,
+  confirmTargets,
   signal,
   onProgress,
   intervalMs = 200,
@@ -115,17 +116,12 @@ export const runBatchMatch = async({
       cover: result.cover,
       failed: result.failed,
       skipped: result.skipped,
+      manual: result.manual,
     })
   }
 
-  // 1. 扫描：逐首解析同目录文件/内嵌标签，得到待处理列表
-  let musics: LX.Music.MusicInfo[]
-  try {
-    musics = await getListMusics(listId)
-  } catch (error: any) {
-    log.warn(`get list musics for batch match failed: ${error?.message ?? error}`)
-    return result
-  }
+  // 扫描只读取本地状态。
+  const musics = await getListMusics(listId)
   const localMusics = musics.filter(musicInfo => musicInfo.source === 'local')
   result.localTotal = localMusics.length
   if (!localMusics.length) return result
@@ -168,7 +164,22 @@ export const runBatchMatch = async({
   }
 
   result.total = targets.length
+  if (isCanceled()) {
+    result.canceled = true
+    return result
+  }
   if (!targets.length) return result
+
+  const confirmed = await confirmTargets({
+    total: targets.length,
+    lyrics: targets.filter(target => target.needLyric).length,
+    covers: targets.filter(target => target.needCover).length,
+    skipped: result.skipped,
+  })
+  if (!confirmed || isCanceled()) {
+    result.canceled = true
+    return result
+  }
 
   // 2. 补全：串行逐首，先歌词后封面
   for (let index = 0; index < targets.length; index++) {
@@ -180,26 +191,27 @@ export const runBatchMatch = async({
     const name = getMusicName(target.musicInfo)
     emitCounts('matching', index + 1, targets.length, name)
 
-    let songFailed = false
+    const outcomes: ItemResult[] = []
     try {
-      if (target.needLyric) {
-        const lyricResult = await tryMatchLyric(target.musicInfo, listId, signal)
-        if (lyricResult === 'ok') result.lyric++
-        else if (lyricResult === 'fail') songFailed = true
+      const missing = getMissingKinds(await getLocalMusicFileState(target.musicInfo.meta.filePath))
+      if (target.needLyric && !isCanceled()) {
+        const outcome = missing.lyric ? await tryMatchLyric(target.musicInfo, listId, signal) : 'skipped'
+        outcomes.push(outcome)
+        if (outcome === 'ok') result.lyric++
       }
-      // 取消后不再开始封面阶段，等当前歌词阶段收尾即可
       if (target.needCover && !isCanceled()) {
-        const coverResult = await tryMatchCover(target.musicInfo, signal)
-        if (coverResult === 'ok') result.cover++
-        else if (coverResult === 'fail') songFailed = true
+        const outcome = missing.cover ? await tryMatchCover(target.musicInfo, signal) : 'skipped'
+        outcomes.push(outcome)
+        if (outcome === 'ok') result.cover++
       }
     } catch (error: any) {
-      // 单曲异常只计 failed，继续处理后续歌曲
-      songFailed = true
+      outcomes.push('fail')
       log.warn(`batch match process song failed: ${name}\n${error?.message ?? error}`)
     }
 
-    if (songFailed) result.failed++
+    if (outcomes.includes('fail')) result.failed++
+    if (outcomes.includes('manual')) result.manual++
+    if (outcomes.includes('skipped')) result.skipped++
     result.processed++
     emitCounts('matching', index + 1, targets.length, name)
 
@@ -216,7 +228,7 @@ export const runBatchMatch = async({
     }
   }
 
-  log.info(`batch match finished: lyric ${result.lyric}, cover ${result.cover}, failed ${result.failed}, skipped ${result.skipped}, processed ${result.processed}/${result.total}${result.canceled ? ', canceled' : ''}`)
+  log.info(`batch match finished: lyric ${result.lyric}, cover ${result.cover}, failed ${result.failed}, manual ${result.manual}, skipped ${result.skipped}, processed ${result.processed}/${result.total}${result.canceled ? ', canceled' : ''}`)
   return result
 }
 
@@ -236,6 +248,7 @@ const tryMatchLyric = async(musicInfo: LX.Music.MusicInfoLocal, listId: string, 
     return 'fail'
   }
   const indexes = getLyricAttemptIndexes(candidates)
+  let needsManual = candidates.length > 0 && !indexes.length
   for (const index of indexes) {
     if (signal?.aborted) return 'canceled'
     const candidate = candidates[index]
@@ -248,10 +261,16 @@ const tryMatchLyric = async(musicInfo: LX.Music.MusicInfoLocal, listId: string, 
       continue
     }
     if (!lyric?.lyric.trim()) continue
+    if (!lyric.isSynced) {
+      needsManual = true
+      continue
+    }
 
+    if (signal?.aborted) return 'canceled'
     try {
-      await applyLrcToMusic({ musicInfo, candidate, lyric })
+      await applyLrcToMusic({ musicInfo, candidate, lyric, onlyIfMissing: true })
     } catch (error: any) {
+      if (error?.code === 'already_exists') return 'skipped'
       log.warn(`batch match apply lyric failed: ${musicInfo.meta.filePath}\n${error?.message ?? error}`)
       return 'fail'
     }
@@ -263,6 +282,7 @@ const tryMatchLyric = async(musicInfo: LX.Music.MusicInfoLocal, listId: string, 
     }
     return 'ok'
   }
+  if (needsManual) return 'manual'
   log.warn(`batch match no usable lyric: ${musicInfo.name}`)
   return 'fail'
 }
@@ -279,14 +299,18 @@ const tryMatchCover = async(musicInfo: LX.Music.MusicInfoLocal, signal?: AbortSi
     log.warn(`batch match search cover failed: ${musicInfo.name}\n${error?.message ?? error}`)
     return 'fail'
   }
-  const indexes = getCoverAttemptIndexes(candidates)
+  const album = normalizeText(musicInfo.meta.albumName ?? '')
+  const albumMatches = album ? candidates.filter(candidate => normalizeText(candidate.albumName) === album) : []
+  const indexes = getCoverAttemptIndexes(albumMatches)
+  if (candidates.length && !indexes.length) return 'manual'
   for (const index of indexes) {
     if (signal?.aborted) return 'canceled'
-    const candidate = candidates[index]
+    const candidate = albumMatches[index]
     try {
-      await applyCoverCandidate({ musicInfo, candidate })
+      await applyCoverCandidate({ musicInfo, candidate, onlyIfMissing: true, signal })
     } catch (error: any) {
       if (signal?.aborted) return 'canceled'
+      if (error?.code === 'already_exists') return 'skipped'
       log.warn(`batch match apply cover failed: ${musicInfo.name}\n${error?.message ?? error}`)
       continue
     }

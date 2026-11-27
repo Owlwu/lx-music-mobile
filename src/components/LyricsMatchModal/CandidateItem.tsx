@@ -1,5 +1,6 @@
 import { memo } from 'react'
-import { Pressable, View } from 'react-native'
+import { View } from 'react-native'
+import MediaCandidate from '@/components/MediaEdit/Candidate'
 import Text from '@/components/common/Text'
 import { useTheme } from '@/store/theme/hook'
 import { useI18n } from '@/lang'
@@ -22,46 +23,34 @@ export default memo(({ candidate, selected, onPress }: CandidateItemProps) => {
       ? t('lyrics_match_source_netease')
       : t('lyrics_match_source_lrclib')
   const durationText = candidate.durationSec == null ? '' : formatPlayTime2(candidate.durationSec)
+  const details = [candidate.singer, candidate.albumName].filter(Boolean).join(' · ')
+  const syncLabel = t(candidate.hasSynced == null ? 'lyrics_match_synced_unknown' : candidate.hasSynced ? 'lyrics_match_has_synced' : 'lyrics_match_no_synced')
+  const instrumentalLabel = candidate.instrumental ? t('lyrics_match_instrumental') : ''
+  const label = [candidate.name, details, durationText, sourceLabel, syncLabel, instrumentalLabel].filter(Boolean).join(', ')
 
   return (
-    <Pressable
-      style={{
-        ...styles.container,
-        backgroundColor: selected ? theme['c-primary-background-active'] : theme['c-primary-input-background'],
-      }}
-      onPress={() => { onPress(candidate) }}
-    >
+    <MediaCandidate label={label} selected={selected} onPress={() => { onPress(candidate) }}>
       <View style={styles.main}>
         <Text size={14} numberOfLines={1}>{candidate.name || '-'}</Text>
         <View style={styles.metaRow}>
-          <Text size={12} style={styles.metaText} color={theme['c-font-label']} numberOfLines={1}>
-            {[candidate.singer, candidate.albumName].filter(Boolean).join(' · ') || '-'}
+          <Text size={12} style={styles.metaText} color={theme['c-700']} numberOfLines={1}>
+            {details || '-'}
           </Text>
           {durationText
-            ? <Text size={12} style={styles.metaDuration} color={theme['c-font-label']}>{durationText}</Text>
+            ? <Text size={12} style={styles.metaDuration} color={theme['c-700']}>{durationText}</Text>
             : null}
         </View>
         <View style={styles.tags}>
-          <Text size={11} color={theme['c-font-label']}>{sourceLabel}</Text>
-          <Text size={11} color={theme['c-font-label']}>{candidate.hasSynced == null ? t('lyrics_match_synced_unknown') : candidate.hasSynced ? t('lyrics_match_has_synced') : t('lyrics_match_no_synced')}</Text>
-          {candidate.instrumental ? <Text size={11} color={theme['c-primary-font']}>{t('lyrics_match_instrumental')}</Text> : null}
+          <Text size={11} color={theme['c-700']}>{sourceLabel}</Text>
+          <Text size={11} color={theme['c-700']}>{syncLabel}</Text>
+          {instrumentalLabel ? <Text size={11} color={theme['c-700']}>{instrumentalLabel}</Text> : null}
         </View>
       </View>
-    </Pressable>
+    </MediaCandidate>
   )
 })
 
 const styles = createStyle({
-  container: {
-    flexGrow: 0,
-    flexShrink: 0,
-    marginBottom: 6,
-    paddingLeft: 12,
-    paddingRight: 12,
-    paddingTop: 8,
-    paddingBottom: 8,
-    borderRadius: 6,
-  },
   main: {
     flexGrow: 1,
     flexShrink: 1,
@@ -69,7 +58,7 @@ const styles = createStyle({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
+    marginTop: 1,
   },
   // 歌手/专辑过长时只压缩这一侧，时长始终完整显示
   metaText: {
@@ -83,7 +72,7 @@ const styles = createStyle({
   },
   tags: {
     flexDirection: 'row',
-    marginTop: 5,
+    marginTop: 2,
     gap: 12,
   },
 })

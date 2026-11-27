@@ -22,12 +22,12 @@ const PADDING_TOP_PROGRESS = PADDING_TOP + MARGIN_TOP
 const PlayTimeCurrent = ({ timeStr }: { timeStr: string }) => {
   const theme = useTheme()
   // console.log(timeStr)
-  return <Text size={FONT_SIZE} color={theme['c-500']}>{timeStr}</Text>
+  return <Text size={FONT_SIZE} color={theme['c-700']}>{timeStr}</Text>
 }
 
 const PlayTimeMax = memo(({ timeStr }: { timeStr: string }) => {
   const theme = useTheme()
-  return <Text size={FONT_SIZE} color={theme['c-500']}>{timeStr}</Text>
+  return <Text size={FONT_SIZE} color={theme['c-700']}>{timeStr}</Text>
 })
 
 export default ({ isHome }: { isHome: boolean }) => {
@@ -49,7 +49,7 @@ export default ({ isHome }: { isHome: boolean }) => {
       </View>
       <View style={{ flexGrow: 0, flexShrink: 0, flexDirection: 'row', alignItems: 'flex-start' }} >
         <PlayTimeCurrent timeStr={nowPlayTimeStr} />
-        <Text size={FONT_SIZE} color={theme['c-500']}> / </Text>
+        <Text size={FONT_SIZE} color={theme['c-700']}> / </Text>
         <PlayTimeMax timeStr={maxPlayTimeStr} />
       </View>
       <View style={[StyleSheet.absoluteFill, stylesRaw.progress]}>

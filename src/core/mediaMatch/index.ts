@@ -166,10 +166,11 @@ export const getCandidateLyric = async(candidate: LX.Music.LyricsCandidate, sign
  * 应用候选：生成 LRC 文本并按文件规则写入（临时文件写入后替换）
  * @param lyric 已取到的歌词（预览时缓存）；不传则重新取词
  */
-export const applyLrcToMusic = async({ musicInfo, candidate, lyric: fetchedLyric }: {
+export const applyLrcToMusic = async({ musicInfo, candidate, lyric: fetchedLyric, onlyIfMissing }: {
   musicInfo: LX.Music.MusicInfoLocal
   candidate: LX.Music.LyricsCandidate
   lyric?: LX.Music.LyricResult | null
+  onlyIfMissing?: boolean
 }): Promise<LrcWriteResult> => {
   const result = fetchedLyric ?? await getCandidateLyric(candidate)
   if (!result?.lyric.trim()) throw new Error('no valid lyric')
@@ -182,7 +183,7 @@ export const applyLrcToMusic = async({ musicInfo, candidate, lyric: fetchedLyric
     tlyric: result.tlyric,
     rlyric: result.rlyric,
   })
-  return writeLrcFile(musicInfo.meta.filePath, text)
+  return writeLrcFile(musicInfo.meta.filePath, text, onlyIfMissing)
 }
 
 export interface UpdateLyricSourceOptions {

@@ -412,6 +412,7 @@ check('无效路径状态为空', await coverFile.getCoverState(`${firstDir}/mis
 
 const firstJpeg = makeJpeg(500, 500, 1)
 const firstApply = await coverFile.applyCoverImage(audioPath, firstJpeg)
+await checkThrowsCode('批量模式保留已有封面', () => coverFile.applyCoverImage(audioPath, firstJpeg, true), 'already_exists')
 check('首次写入 JPEG → 同名 .jpg', firstApply, { imagePath: jpgPath, format: 'jpg' })
 check('首次写入不产生备份', await fsShim.existsFile(jpgBackupPath), false)
 check('首次写入内容正确', await fsShim.readFile(jpgPath, 'base64'), firstJpeg.toString('base64'))
@@ -468,6 +469,7 @@ const lrcPath = lrcFile.getLrcFilePath(audioPath)
 const upperLrcPath = lrcPath.slice(0, -4) + '.LRC'
 const lrcBackupPath = lrcPath + '.bak'
 check('首次写入返回同名 LRC 路径', await lrcFile.writeLrcFile(audioPath, 'first lyric'), { lrcPath })
+await checkThrowsCode('批量模式保留已有歌词', () => lrcFile.writeLrcFile(audioPath, 'batch lyric', true), 'already_exists')
 await lrcFile.writeLrcFile(audioPath, 'matched lyric')
 check('直接覆盖旧歌词', await fsShim.readFile(lrcPath, 'utf8'), 'matched lyric\n')
 check('覆盖不产生备份', await fsShim.existsFile(lrcBackupPath), false)

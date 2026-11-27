@@ -89,7 +89,8 @@ export default forwardRef<MetadataFormType, {}>((props, ref) => {
         label={global.i18n.t('metadata_edit_modal_file_name')}
         numberOfLines={2}
         scrollEnabled
-        style={{ ...styles.pathText, color: theme['c-primary-font'] }}
+        editable={false}
+        style={{ ...styles.pathText, color: theme['c-700'] }}
       />
 
       <InputItem
@@ -126,8 +127,6 @@ const styles = createStyle({
     flexGrow: 1,
     flexShrink: 1,
     flexDirection: 'column',
-    width: 360,
-    maxWidth: '100%',
   },
   pathText: {
     height: 60,

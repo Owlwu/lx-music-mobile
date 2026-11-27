@@ -51,6 +51,13 @@ export const updateLocalPic = (listId: string, musicInfo: LX.Music.MusicInfo, ur
 }
 
 export const parseLyric = (lrc: string): LX.Music.LyricInfo => {
+  // 播放器要求小数点，并按时间标签匹配翻译和罗马音。统一使用三位毫秒，兼容网易云的 [mm:ss:xx]。
+  const normalizeTimeTags = (text: string) => text.replace(
+    /^[ \t]*(?:\[[\d:.]+])+/gm,
+    (tags) => tags
+      .replace(/\[(\d{1,3}:\d{1,3})(?::(\d{1,3}))?]/g, (_tag, time: string, fraction = '0') => `[${time}.${fraction}]`)
+      .replace(/\[((?:\d{1,3}:){0,2}\d{1,3})\.(\d{1,3})]/g, (_tag, time: string, fraction: string) => `[${time}.${fraction.padEnd(3, '0')}]`),
+  )
   const verifyAwlrc = (lrc: string) => {
     return /(?:^|\s*)\[\d+:\d+(?:\.\d+)]<\d+,\d+>.+$/m.test(lrc)
   }
@@ -85,7 +92,8 @@ export const parseLyric = (lrc: string): LX.Music.LyricInfo => {
       if (!result) continue
       const target = lrcTags[result[1].toLowerCase() as 'tlrc' | 'rlrc' | 'lrc' | 'awlrc']
       if (!target) continue
-      const data = Buffer.from(result[2], 'base64').toString('utf-8').trim()
+      const decoded = Buffer.from(result[2], 'base64').toString('utf-8').trim()
+      const data = target.name === 'lxlyric' ? decoded : normalizeTimeTags(decoded)
       if (target.verify(data)) lyricInfo[target.name] = data
     }
     return lyricInfo
@@ -95,7 +103,7 @@ export const parseLyric = (lrc: string): LX.Music.LyricInfo => {
     parsedInfo = parse(p1)
     return ''
   }).trim()
-  return { lyric, ...parsedInfo }
+  return { ...parsedInfo, lyric: parsedInfo.lyric ?? normalizeTimeTags(lyric) }
 }
 
 /**

@@ -3,6 +3,7 @@ import { memo } from 'react'
 import { StyleSheet, View } from 'react-native'
 import type { InputProps } from '@/components/common/Input'
 import Input from '@/components/common/Input'
+import { mediaEditStyles } from '@/components/MediaEdit/styles'
 import { useTheme } from '@/store/theme/hook'
 import Text from '@/components/common/Text'
 
@@ -19,9 +20,10 @@ export default memo(({ value, label, onChanged, ...props }: InputItemProps) => {
     <View style={styles.container}>
       <Text style={styles.label} size={14}>{label}</Text>
       <Input
+        accessibilityLabel={label}
         value={value}
         onChangeText={onChanged}
-        style={{ ...styles.input, backgroundColor: theme['c-primary-input-background'] }}
+        style={[styles.input, mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }]}
         {...props}
        />
     </View>

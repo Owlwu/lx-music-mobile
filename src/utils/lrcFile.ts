@@ -3,6 +3,7 @@ import { checkWritableLocalPath, type WritablePathCheckResult } from './localPat
 import { replaceSidecar, unlinkSidecar, withSidecarWrite } from './sidecarWrite'
 
 export type LrcFileErrorCode =
+  | 'already_exists'
   | 'permission'
   | 'no_space'
   | 'write_failed'
@@ -88,9 +89,14 @@ const toLrcFileError = (error: unknown, fallback: LrcFileErrorCode): LrcFileErro
   return new LrcFileError(code === 'unknown' ? fallback : code, getErrorMessage(error))
 }
 
-export const writeLrcFile = async(filePath: string, text: string): Promise<LrcWriteResult> => {
+export const writeLrcFile = async(filePath: string, text: string, onlyIfMissing = false): Promise<LrcWriteResult> => {
   return withSidecarWrite(getLrcFilePath(filePath), async() => {
     const lrcPath = await findLrcFilePath(filePath)
+    if (onlyIfMissing) {
+      const otherPath = lrcPath.endsWith('.LRC') ? getLrcFilePath(filePath) : lrcPath.slice(0, -4) + '.LRC'
+      const files = await Promise.all([lrcPath, otherPath].map(async path => stat(path).catch(() => null)))
+      if (files.some(info => info?.isFile && info.size > 0)) throw new LrcFileError('already_exists', 'a lyric file already exists')
+    }
     const tmpPath = `${lrcPath}.tmp`
     try {
       await unlinkSidecar(tmpPath)

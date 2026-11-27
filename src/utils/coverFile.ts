@@ -9,6 +9,7 @@ import {
 } from '@/utils/coverMatch/image'
 
 export type CoverFileErrorCode =
+  | 'already_exists'
   | 'invalid_file'
   | 'image_invalid'
   | 'image_too_large'
@@ -134,7 +135,7 @@ export const getCoverState = async(filePath: string): Promise<LX.Music.CoverStat
   return { imageExists: false }
 }
 
-export const applyCoverImage = async(filePath: string, data: Uint8Array): Promise<LX.Music.CoverApplyResult> => {
+export const applyCoverImage = async(filePath: string, data: Uint8Array, onlyIfMissing = false): Promise<LX.Music.CoverApplyResult> => {
   if (!await isAudioFilePath(filePath)) {
     throw new CoverFileError('invalid_file', 'invalid audio file path')
   }
@@ -151,6 +152,10 @@ export const applyCoverImage = async(filePath: string, data: Uint8Array): Promis
   const otherPath = format === 'jpg' ? pngPath : jpgPath
 
   return withSidecarWrite(jpgPath, async() => {
+    if (onlyIfMissing) {
+      const files = await Promise.all([jpgPath, pngPath].map(statOrNull))
+      if (files.some(info => info?.isFile && info.size > 0)) throw new CoverFileError('already_exists', 'a cover file already exists')
+    }
     const tmpPath = imagePath + '.tmp'
     try {
       await unlinkSidecar(tmpPath)

@@ -1,9 +1,8 @@
 import { memo } from 'react'
 
 import { StyleSheet, View } from 'react-native'
-import { useTheme } from '@/store/theme/hook'
 import Text from '@/components/common/Text'
-import ButtonPrimary from '@/components/common/ButtonPrimary'
+import MediaAction from '@/components/MediaEdit/Action'
 import { useI18n } from '@/lang'
 
 
@@ -18,7 +17,6 @@ const parsePath = (fileName: string) => {
 }
 
 export default memo(({ fileName, onNameChanged, onSingerChanged }: ParseNameProps) => {
-  const theme = useTheme()
   const t = useI18n()
   const handleParseNameSinger = () => {
     const [name, singer] = parsePath(fileName)
@@ -34,12 +32,8 @@ export default memo(({ fileName, onNameChanged, onSingerChanged }: ParseNameProp
     <View style={styles.container}>
       <Text style={styles.label} size={14}>{t('metadata_edit_modal_form_parse_name')}</Text>
       <View style={styles.btns}>
-        <ButtonPrimary style={{ backgroundColor: theme['c-button-background'] }} onPress={handleParseNameSinger}>
-          <Text color={theme['c-button-font']} size={13}>{t('metadata_edit_modal_form_parse_name_singer')}</Text>
-        </ButtonPrimary>
-        <ButtonPrimary style={{ backgroundColor: theme['c-button-background'] }} onPress={handleParseSingerName}>
-          <Text color={theme['c-button-font']} size={13}>{t('metadata_edit_modal_form_parse_singer_name')}</Text>
-        </ButtonPrimary>
+        <MediaAction disabled={!fileName} onPress={handleParseNameSinger}>{t('metadata_edit_modal_form_parse_name_singer')}</MediaAction>
+        <MediaAction disabled={!fileName} onPress={handleParseSingerName}>{t('metadata_edit_modal_form_parse_singer_name')}</MediaAction>
       </View>
     </View>
   )
@@ -56,5 +50,7 @@ const styles = StyleSheet.create({
   btns: {
     marginTop: 5,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
 })

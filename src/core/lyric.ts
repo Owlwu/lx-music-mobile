@@ -2,6 +2,7 @@ import {
   play as lrcPlay,
   setLyric as lrcSetLyric,
   pause as lrcPause,
+  seekPaused,
   setPlaybackRate as lrcSetPlaybackRate,
   toggleTranslation as lrcToggleTranslation,
   toggleRoma as lrcToggleRoma,
@@ -90,6 +91,7 @@ export const toggleTranslation = async(isShowTranslation: boolean) => {
   lrcToggleTranslation(isShowTranslation)
   await toggleDesktopLyricTranslation(isShowTranslation)
   if (playerState.isPlay) play()
+  else updatePausedLyricPosition(playerState.progress.nowPlayTime)
 }
 
 /**
@@ -100,6 +102,11 @@ export const toggleRoma = async(isShowLyricRoma: boolean) => {
   lrcToggleRoma(isShowLyricRoma)
   await toggleDesktopLyricRoma(isShowLyricRoma)
   if (playerState.isPlay) play()
+  else updatePausedLyricPosition(playerState.progress.nowPlayTime)
+}
+
+export const updatePausedLyricPosition = (time: number) => {
+  if (playerState.musicInfo.id && !playerState.isPlay) seekPaused(time * 1000)
 }
 
 export const play = () => {
@@ -120,4 +127,5 @@ export const setLyric = async() => {
   }
 
   if (playerState.isPlay) play()
+  else updatePausedLyricPosition(playerState.progress.nowPlayTime)
 }

@@ -1,8 +1,9 @@
 import { memo, useCallback, useRef } from 'react'
 
-import { TouchableOpacity, View } from 'react-native'
+import { View } from 'react-native'
 import { useTheme } from '@/store/theme/hook'
 import Text from '@/components/common/Text'
+import MediaAction from '@/components/MediaEdit/Action'
 import { createStyle } from '@/utils/tools'
 import Image from '@/components/common/Image'
 import FileSelect, { type FileSelectType } from '@/components/common/FileSelect'
@@ -35,12 +36,12 @@ export default memo(({ value, label, onChanged }: PicItemProps) => {
       <View style={styles.header}>
         <Text style={styles.label} size={14}>{label}</Text>
         <View style={styles.btns}>
-          <TouchableOpacity onPress={handleRemoveFile}>
-            <Text size={13} color={theme['c-button-font']}>{global.i18n.t('metadata_edit_modal_form_remove_pic')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleShowSelectFile}>
-            <Text size={13} color={theme['c-button-font']}>{global.i18n.t('metadata_edit_modal_form_select_pic')}</Text>
-          </TouchableOpacity>
+          <MediaAction kind="danger" disabled={!value} onPress={handleRemoveFile}>
+            {global.i18n.t('metadata_edit_modal_form_remove_pic')}
+          </MediaAction>
+          <MediaAction onPress={handleShowSelectFile}>
+            {global.i18n.t('metadata_edit_modal_form_select_pic')}
+          </MediaAction>
         </View>
       </View>
       <View style={styles.picContent}>
@@ -64,14 +65,16 @@ const styles = createStyle({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 30,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   label: {
     marginBottom: 2,
   },
   btns: {
     flexDirection: 'row',
-    gap: 15,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   picContent: {
     // backgroundColor: 'rgba(0,0,0,0.2)',

@@ -255,29 +255,16 @@ const select = await load('select')
 
 const lyricCandidate = (score, instrumental = false) => ({ score, instrumental })
 
-console.log('\n== B1 歌词尝试顺序：第 1 个 + 1..4 中 !instrumental && score>=0.6 ==')
+console.log('\n== B 自动选择只接受高置信候选 ==')
 check('空候选不尝试', select.getLyricAttemptIndexes([]), [])
-check('第 1 个总是尝试（即使分低/纯音乐）', select.getLyricAttemptIndexes([lyricCandidate(0.1, true)]), [0])
-check('全满足：最多 5 个', select.getLyricAttemptIndexes([
-  lyricCandidate(0.9), lyricCandidate(0.9), lyricCandidate(0.9), lyricCandidate(0.9), lyricCandidate(0.9), lyricCandidate(0.9),
-]), [0, 1, 2, 3, 4])
-check('纯音乐跳过', select.getLyricAttemptIndexes([
-  lyricCandidate(0.9), lyricCandidate(0.9, true), lyricCandidate(0.9),
-]), [0, 2])
-check('分数 < 0.6 跳过', select.getLyricAttemptIndexes([
-  lyricCandidate(0.9), lyricCandidate(0.59), lyricCandidate(0.6),
-]), [0, 2])
-check('分数恰好 0.6 保留', select.getLyricAttemptIndexes([lyricCandidate(0.9), lyricCandidate(0.6)]), [0, 1])
-check('第 1 个即使纯音乐/低分也保留', select.getLyricAttemptIndexes([
-  lyricCandidate(0.2, true), lyricCandidate(0.8), lyricCandidate(0.2),
-]), [0, 1])
-check('不足 5 条时按实际长度', select.getLyricAttemptIndexes([lyricCandidate(0.9), lyricCandidate(0.9)]), [0, 1])
-
-console.log('\n== B2 封面尝试顺序：第 1 个 + 最多 2 个回退 ==')
-check('空候选不尝试', select.getCoverAttemptIndexes([]), [])
-check('1 条只试 1 个', select.getCoverAttemptIndexes([{}]), [0])
-check('2 条试 2 个', select.getCoverAttemptIndexes([{}, {}]), [0, 1])
-check('5 条最多试 3 个', select.getCoverAttemptIndexes([{}, {}, {}, {}, {}]), [0, 1, 2])
+check('首项低分或纯音乐也不尝试', select.getLyricAttemptIndexes([
+  lyricCandidate(0.89), lyricCandidate(0.99, true), lyricCandidate(0.9),
+]), [2])
+check('歌词最多尝试五个', select.getLyricAttemptIndexes(Array(7).fill(lyricCandidate(0.9))), [0, 1, 2, 3, 4])
+check('封面低分跳过，最多尝试三个', select.getCoverAttemptIndexes([
+  lyricCandidate(0.89), ...Array(4).fill(lyricCandidate(0.9)),
+]), [1, 2, 3])
+check('未提供分数不尝试', select.getCoverAttemptIndexes([{}]), [])
 
 // ---------------------------------------------------------------------------
 // C. i18n（三语 key 与占位符）
@@ -292,7 +279,7 @@ const contractI18n = {
   'batch_match__btn': '一键补全缺失歌词/封面',
   'batch_match__btn_short': '补全',
   'batch_match__title': '一键补全歌词/封面',
-  'batch_match__confirm': '将扫描当前列表中的 {total} 首本地歌曲，并为缺少歌词或封面的歌曲自动写入匹配到的第一个结果。仅处理音频内嵌与同目录同名文件中都没有歌词/封面的歌曲。是否继续？',
+  'batch_match__confirm': '扫描完成。{total} 首歌可尝试补全，缺歌词 {lyrics} 首，缺封面 {covers} 首，无法处理 {skipped} 首。确认后仅自动写入可信候选，其余留待手动匹配。',
   'batch_match__scanning': '正在扫描本地文件…',
   'batch_match__scan_current': '扫描中 {current}/{total}：{name}',
   'batch_match__matching': '正在补全…',
@@ -301,8 +288,8 @@ const contractI18n = {
   'batch_match__no_local': '当前列表没有本地歌曲',
   'batch_match__cancel': '取消',
   'batch_match__canceled': '已取消，本次已处理 {done} 首',
-  'batch_match__summary': '完成：补全歌词 {lyric} 首，补全封面 {cover} 首；{failed} 首失败，{skipped} 首跳过',
-  'batch_match__progress_counts': '补全歌词 {lyric} 首 / 补全封面 {cover} 首 / {failed} 首失败 / {skipped} 首跳过',
+  'batch_match__summary': '补全歌词 {lyric} 首、封面 {cover} 首。失败 {failed} 首，跳过 {skipped} 首，待手动匹配 {manual} 首。',
+  'batch_match__progress_counts': '歌词 {lyric} 首 / 封面 {cover} 首 / 失败 {failed} 首 / 跳过 {skipped} 首 / 待手动 {manual} 首',
 }
 const getPlaceholders = text => [...new Set([...text.matchAll(/\{(\w+)\}/g)].map(match => match[1]))].sort()
 const zhCn = langs[0].messages
@@ -334,15 +321,14 @@ check('ActiveList 使用短文案 batch_match__btn_short', activeListSource.incl
 check('ActiveList 按钮 accessibilityLabel=batch_match__title', activeListSource.includes("accessibilityLabel={t('batch_match__title')}"), true)
 check('ActiveList 搜索按钮旁渲染补全按钮', /search-2[\s\S]{0,400}batchMatchBtn/.test(activeListSource), true)
 check('MusicList 引入 BatchMatchModal', musicListSource.includes('BatchMatchModal'), true)
-check('MusicList 使用 batch_match__confirm 确认', musicListSource.includes('batch_match__confirm'), true)
-check('MusicList 无本地歌曲提示 batch_match__no_local', musicListSource.includes('batch_match__no_local'), true)
+check('扫描完成后在批量弹窗确认', modalSource.includes('batch_match__confirm') && modalSource.includes('confirmTargets'), true)
+check('批量弹窗提示列表没有本地歌曲', modalSource.includes('batch_match__no_local'), true)
 check('MusicList 确认后以 listId 启动批次', musicListSource.includes('batchMatchRef.current?.show({ listId })'), true)
-check('MusicList 从 core/list 读取当前列表', musicListSource.includes('getListMusics') && musicListSource.includes("from '@/core/list'"), true)
 check('MusicList 渲染 BatchMatchModal 并接线按钮', musicListSource.includes('<BatchMatchModal ref={batchMatchRef} />') && musicListSource.includes('onBatchMatch={handleBatchMatch}'), true)
 check('弹窗使用 common/Dialog', modalSource.includes("from '@/components/common/Dialog'"), true)
 check('弹窗显示扫描/补全阶段与当前歌曲', modalSource.includes('batch_match__scanning') && modalSource.includes('batch_match__match_current'), true)
-check('弹窗有取消按钮', modalSource.includes('batch_match__cancel') && modalSource.includes('handleCancel'), true)
-check('弹窗结束用 toast/tipDialog 汇报', modalSource.includes('batch_match__canceled') && modalSource.includes('batch_match__none') && modalSource.includes('batch_match__summary') && modalSource.includes('tipDialog'), true)
+check('弹窗有取消按钮', modalSource.includes('batch_match__cancel') && modalSource.includes('const cancel'), true)
+check('弹窗结束用 toast/tipDialog 汇报', modalSource.includes('batch_match__canceled') && modalSource.includes('batch_match__none') && modalSource.includes('batch_match__summary') && modalSource.includes("type: 'result'"), true)
 check('core 使用 getListMusics 扫描当前列表', coreSource.includes('getListMusics(listId)'), true)
 check('core 使用 state 判定缺失', coreSource.includes('getLocalMusicFileState') && coreSource.includes('getMissingKinds'), true)
 check('core 歌词链路完整', ['searchLyrics', 'getCandidateLyric', 'applyLrcToMusic', "source: 'lrc'"].every(token => coreSource.includes(token)), true)
@@ -367,6 +353,7 @@ copyModule('core/batchMatch/index.ts', 'batch.ts', [
   [/@\/utils\/coverFile/g, './coverPath.ts'],
   [/@\/utils\/lrcFile/g, './lrcPath.ts'],
   [/@\/utils\/log/g, './log.ts'],
+  [/@\/utils\/mediaMatch\/normalize/g, './normalize.ts'],
   [/from '\.\/select'/g, "from './select.ts'"],
 ])
 copyModule('core/batchMatch/select.ts', 'select.ts')
@@ -422,7 +409,9 @@ export const applyCoverCandidate = async (options) => globalThis.__media.applyCo
 export const refreshPlayingCover = async (musicInfo) => globalThis.__media.refreshPlayingCover(musicInfo)
 `, 'utf8')
 
+copyModule('utils/mediaMatch/normalize.ts', 'normalize.ts')
 const batch = await load('batch')
+const runBatch = options => batch.runBatchMatch({ confirmTargets: async() => true, ...options })
 const listStub = await load('list')
 const timerStub = await load('backgroundTimer')
 
@@ -544,7 +533,7 @@ globalThis.__mediaImpl.searchLyrics = async({ musicInfo }) => musicInfo.id === '
 globalThis.__mediaImpl.getCandidateLyric = async() => ({ lyric: '[00:01.00]hello', isSynced: true })
 globalThis.__mediaImpl.searchCoverCandidates = async({ musicInfo }) => musicInfo.id === 'a' ? [makeCoverCandidate('cover-a')] : []
 const progressEvents = []
-const summary = await batch.runBatchMatch({
+const summary = await runBatch({
   listId: 'list1',
   intervalMs: 0,
   onProgress: progress => progressEvents.push(progress),
@@ -558,6 +547,7 @@ check('汇总计数', summary, {
   cover: 1,
   failed: 1,
   skipped: 0,
+  manual: 0,
 })
 check('只读取一次当前列表', listStub.calls, ['list1'])
 check('非本地歌曲不处理', mediaCalls.lyricSearch.includes('online') || mediaCalls.coverSearch.includes('online'), false)
@@ -577,6 +567,7 @@ check('补全阶段实时计数（第一首结束）', progressEvents.filter(eve
   cover: 1,
   failed: 0,
   skipped: 0,
+  manual: 0,
 })
 check('补全阶段实时计数（末尾失败 1）', progressEvents.filter(event => event.phase === 'matching').at(-1).failed, 1)
 
@@ -590,7 +581,7 @@ globalThis.__states['/music/Missing.mp3'] = makeFileState({ fileExists: false })
 globalThis.__states['/music/Private.mp3'] = makeFileState()
 globalThis.__lrcPathResults['/music/Private.mp3'] = 'app_private'
 globalThis.__coverPathResults['/music/Private.mp3'] = 'app_private'
-const skipSummary = await batch.runBatchMatch({ listId: 'list2', intervalMs: 0 })
+const skipSummary = await runBatch({ listId: 'list2', intervalMs: 0 })
 check('坏文件与不可写路径计 skipped，不进搜索', skipSummary, {
   canceled: false,
   localTotal: 2,
@@ -600,14 +591,47 @@ check('坏文件与不可写路径计 skipped，不进搜索', skipSummary, {
   cover: 0,
   failed: 0,
   skipped: 2,
+  manual: 0,
 })
 check('跳过时未发起歌词/封面搜索', [mediaCalls.lyricSearch.length, mediaCalls.coverSearch.length], [0, 0])
 
 globalThis.__states['/music/Private.mp3'] = 'THROW'
-const throwSummary = await batch.runBatchMatch({ listId: 'list2', intervalMs: 0 })
+const throwSummary = await runBatch({ listId: 'list2', intervalMs: 0 })
 check('状态探测异常也计 skipped（不中断批次）', throwSummary.skipped, 2)
 
-console.log('\n== E3 歌词自动选择：0 + 最多 4 个 !instrumental && score>=0.6 ==')
+console.log('\n== 预检确认与手动处理 ==')
+resetBatchFixtures()
+recordMedia()
+const reviewSong = makeMusic('review', '/music/Review.mp3')
+globalThis.__lists.review = [reviewSong]
+globalThis.__states['/music/Review.mp3'] = makeFileState()
+const declined = await runBatch({
+  listId: 'review',
+  intervalMs: 0,
+  confirmTargets: async(review) => {
+    check('确认显示待处理歌曲和各缺失项', review, { total: 1, lyrics: 1, covers: 1, skipped: 0 })
+    check('确认前无取词、封面请求或写入', Object.values(mediaCalls).flat(), [])
+    return false
+  },
+})
+check('取消确认后零搜索、零写入', [declined.canceled, declined.processed, Object.values(mediaCalls).flat()], [true, 0, []])
+globalThis.__mediaImpl.searchLyrics = async() => [makeLyricCandidate('low', { score: 0.85 }), makeLyricCandidate('plain')]
+globalThis.__mediaImpl.getCandidateLyric = async() => ({ lyric: 'plain text without timestamps', isSynced: false })
+globalThis.__mediaImpl.searchCoverCandidates = async() => [{ ...makeCoverCandidate('other-album'), score: 1, albumName: 'Another album' }]
+const manual = await runBatch({ listId: 'review', intervalMs: 0 })
+check('低分和无时间轴歌词、不同专辑封面留给手动匹配', [manual.manual, manual.failed, mediaCalls.getLyric, mediaCalls.applyLyric, mediaCalls.applyCover], [1, 0, ['plain'], [], []])
+resetMediaCalls()
+const becameComplete = await runBatch({
+  listId: 'review',
+  intervalMs: 0,
+  confirmTargets: async() => {
+    globalThis.__states['/music/Review.mp3'] = makeFileState({ hasSidecarLyric: true, hasSidecarCover: true })
+    return true
+  },
+})
+check('确认期间新增的同名文件会在补全前跳过', [becameComplete.skipped, Object.values(mediaCalls).flat()], [1, []])
+
+console.log('\n== E3 歌词自动选择和回退 ==')
 resetBatchFixtures()
 recordMedia()
 const fallbackSong = makeMusic('fallback', '/music/Fallback.mp3')
@@ -617,14 +641,14 @@ const candidatesFallback = [
   makeLyricCandidate('c0'),
   makeLyricCandidate('c1', { instrumental: true }),
   makeLyricCandidate('c2', { score: 0.5 }),
-  makeLyricCandidate('c3', { score: 0.7 }),
+  makeLyricCandidate('c3', { score: 0.9 }),
 ]
 globalThis.__mediaImpl.searchLyrics = async() => candidatesFallback
 globalThis.__mediaImpl.getCandidateLyric = async(candidate) => {
   if (candidate.id === 'c3') return { lyric: '[00:02.00]fallback', isSynced: true }
   return null
 }
-const fallbackSummary = await batch.runBatchMatch({ listId: 'list3', intervalMs: 0 })
+const fallbackSummary = await runBatch({ listId: 'list3', intervalMs: 0 })
 check('第 1 个无词后按顺序重试，跳过纯音乐/低分', mediaCalls.getLyric, ['c0', 'c3'])
 check('回退候选写盘成功', [fallbackSummary.lyric, fallbackSummary.failed], [1, 0])
 
@@ -635,7 +659,7 @@ globalThis.__lists.list4 = [manySong]
 globalThis.__states['/music/Many.mp3'] = makeFileState({ hasSidecarCover: true })
 globalThis.__mediaImpl.searchLyrics = async() => Array.from({ length: 7 }, (_, index) => makeLyricCandidate(`m${index}`))
 globalThis.__mediaImpl.getCandidateLyric = async() => null
-const manySummary = await batch.runBatchMatch({ listId: 'list4', intervalMs: 0 })
+const manySummary = await runBatch({ listId: 'list4', intervalMs: 0 })
 check('歌词最多尝试 5 个（0 + 4 回退）', mediaCalls.getLyric, ['m0', 'm1', 'm2', 'm3', 'm4'])
 check('全部无有效歌词计失败', [manySummary.lyric, manySummary.failed], [0, 1])
 
@@ -650,7 +674,7 @@ globalThis.__mediaImpl.applyCoverCandidate = async({ candidate }) => {
   if (candidate.id !== 'k2') throw new Error('download failed')
   return { imagePath: '/music/Cover.jpg', format: 'jpg' }
 }
-const coverSummary = await batch.runBatchMatch({ listId: 'list5', intervalMs: 0 })
+const coverSummary = await runBatch({ listId: 'list5', intervalMs: 0 })
 check('封面按顺序重试到第 3 个成功', mediaCalls.applyCover, ['cover:k0', 'cover:k1', 'cover:k2'])
 check('封面成功不试第 4 个', mediaCalls.applyCover.includes('cover:k3'), false)
 check('封面回退成功计数', [coverSummary.cover, coverSummary.failed], [1, 0])
@@ -662,7 +686,7 @@ globalThis.__lists.list6 = [coverFailSong]
 globalThis.__states['/music/CoverFail.mp3'] = makeFileState({ hasSidecarLyric: true })
 globalThis.__mediaImpl.searchCoverCandidates = async() => ['f0', 'f1', 'f2', 'f3'].map(makeCoverCandidate)
 globalThis.__mediaImpl.applyCoverCandidate = async() => { throw new Error('download failed') }
-const coverFailSummary = await batch.runBatchMatch({ listId: 'list6', intervalMs: 0 })
+const coverFailSummary = await runBatch({ listId: 'list6', intervalMs: 0 })
 check('封面全部失败只试 3 个', mediaCalls.applyCover, ['coverfail:f0', 'coverfail:f1', 'coverfail:f2'])
 check('封面全部失败计 failed', coverFailSummary.failed, 1)
 
@@ -674,7 +698,7 @@ globalThis.__lists.list7 = [preSong]
 globalThis.__states['/music/Pre.mp3'] = makeFileState()
 const preController = new AbortController()
 preController.abort()
-const preSummary = await batch.runBatchMatch({ listId: 'list7', signal: preController.signal, intervalMs: 0 })
+const preSummary = await runBatch({ listId: 'list7', signal: preController.signal, intervalMs: 0 })
 check('开始前已取消：不扫描不搜索', [preSummary.canceled, preSummary.localTotal, preSummary.total, mediaCalls.lyricSearch.length], [true, 1, 0, 0])
 
 resetBatchFixtures()
@@ -689,7 +713,7 @@ globalThis.__mediaImpl.applyLrcToMusic = async() => {
   betweenController.abort()
   return { lrcPath: '/music/Between.lrc' }
 }
-const betweenSummary = await batch.runBatchMatch({ listId: 'list8', signal: betweenController.signal, intervalMs: 0 })
+const betweenSummary = await runBatch({ listId: 'list8', signal: betweenController.signal, intervalMs: 0 })
 check('歌词阶段取消后不再进入封面阶段', mediaCalls.coverSearch, [])
 check('歌词已完成、取消计数正确', [betweenSummary.canceled, betweenSummary.processed, betweenSummary.lyric, betweenSummary.cover], [true, 1, 1, 0])
 
@@ -707,7 +731,7 @@ globalThis.__mediaImpl.applyLrcToMusic = async() => {
   songsController.abort()
   return { lrcPath: '/music/song.lrc' }
 }
-const songsSummary = await batch.runBatchMatch({ listId: 'list9', signal: songsController.signal, intervalMs: 0 })
+const songsSummary = await runBatch({ listId: 'list9', signal: songsController.signal, intervalMs: 0 })
 check('取消后不再开始下一首', mediaCalls.lyricSearch, ['first'])
 check('取消保留已完成结果', [songsSummary.canceled, songsSummary.processed, songsSummary.total, songsSummary.lyric], [true, 1, 2, 1])
 check('取消后不再等待歌曲间隔', timerStub.timers.length, 0)
@@ -725,14 +749,14 @@ globalThis.__mediaImpl.searchLyrics = async({ signal }) => {
   signal?.addEventListener?.('abort', () => {})
   return []
 }
-const signalSummary = await batch.runBatchMatch({ listId: 'list10', signal: signalController.signal, intervalMs: 0 })
+const signalSummary = await runBatch({ listId: 'list10', signal: signalController.signal, intervalMs: 0 })
 check('搜索收到同一个 AbortSignal', receivedSignal === signalController.signal, true)
 check('无候选时计失败且不取消', [signalSummary.failed, signalSummary.canceled], [1, false])
 
 resetBatchFixtures()
 recordMedia()
 globalThis.__lists.empty = []
-const emptySummary = await batch.runBatchMatch({ listId: 'empty', intervalMs: 0 })
+const emptySummary = await runBatch({ listId: 'empty', intervalMs: 0 })
 check('空列表返回全 0', emptySummary, {
   canceled: false,
   localTotal: 0,
@@ -742,6 +766,7 @@ check('空列表返回全 0', emptySummary, {
   cover: 0,
   failed: 0,
   skipped: 0,
+  manual: 0,
 })
 
 // ---------------------------------------------------------------------------

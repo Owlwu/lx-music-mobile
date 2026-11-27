@@ -1,11 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { ScrollView, View } from 'react-native'
+import { Keyboard, ScrollView, View } from 'react-native'
 
 import Dialog, { type DialogType } from '@/components/common/Dialog'
 import Text from '@/components/common/Text'
 import Input, { type InputType } from '@/components/common/Input'
-import Button from '@/components/common/Button'
-import ButtonPrimary from '@/components/common/ButtonPrimary'
+import MediaAction from '@/components/MediaEdit/Action'
+import { mediaEditStyles } from '@/components/MediaEdit/styles'
 import Loading from '@/components/common/Loading'
 import Image from '@/components/common/Image'
 import { useTheme } from '@/store/theme/hook'
@@ -48,8 +48,8 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
   const [coverState, setCoverState] = useState<LX.Music.CoverState>(emptyCoverState)
   const [applying, setApplying] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  // 候选列表实测高度：按内容收缩、最多 resultMaxHeight，避免列表内容把预览/按钮顶出弹窗
   const [listHeight, setListHeight] = useState(0)
+  const [resultsAreaHeight, setResultsAreaHeight] = useState(0)
 
   useEffect(() => () => {
     abortRef.current?.abort()
@@ -90,6 +90,7 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
   const startSearch = async(searchKeyword?: string) => {
     const musicInfo = musicInfoRef.current
     if (!musicInfo) return
+    Keyboard.dismiss()
 
     abortRef.current?.abort()
     const controller = new AbortController()
@@ -104,8 +105,6 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
       const result = await searchCoverCandidates({ musicInfo, keyword: searchKeyword, signal: controller.signal })
       if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
       setCandidates(result)
-      // 先按最大高度占位，等列表实测内容高度后再收缩，避免首帧把预览/按钮顶出弹窗
-      setListHeight(result.length ? Math.max(96, Math.round(windowSize.height * 0.32)) : 0)
       setSearchState('success')
     } catch (error: any) {
       if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
@@ -246,8 +245,7 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
   const selectedInstrumental = isInstrumentalName(selected?.name)
   const canApply = !!selected && !applying && !deleting && searchState !== 'loading'
   const canDelete = coverState.imageExists && !applying && !deleting
-  // 候选列表固定最大高度（约屏幕 30%），避免与预览区互相抢 flex 空间
-  const resultMaxHeight = Math.max(96, Math.round(windowSize.height * 0.30))
+  const resultMaxHeight = Math.floor(resultsAreaHeight * 0.40)
   const previewSize = Math.min(
     Math.round(windowSize.width * 0.90) - 40,
     Math.round(windowSize.height * 0.20),
@@ -260,23 +258,23 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
     if (searchState === 'error') {
       return (
         <View style={styles.center}>
-          <Text size={13} color={theme['c-font-label']}>{t('cover_match_error')}</Text>
-          <ButtonPrimary onPress={() => { void startSearch(keyword) }}>{t('cover_match_retry')}</ButtonPrimary>
+          <Text size={13} color={theme['c-700']}>{t('cover_match_error')}</Text>
+          <MediaAction onPress={() => { void startSearch(keyword) }}>{t('cover_match_retry')}</MediaAction>
         </View>
       )
     }
-    if (searchState === 'success' && !candidates.length) {
-      return <View style={styles.center}><Text size={13} color={theme['c-font-label']}>{t('cover_match_empty')}</Text></View>
+    if (!candidates.length) {
+      return searchState === 'success'
+        ? <View style={styles.center}><Text size={13} color={theme['c-700']}>{t('cover_match_empty')}</Text></View>
+        : null
     }
     return (
       <ScrollView
-        style={[styles.listScroll, { maxHeight: resultMaxHeight }, listHeight > 0 ? { height: Math.min(listHeight, resultMaxHeight) } : null]}
+        style={[styles.listScroll, { height: Math.min(listHeight || resultMaxHeight, resultMaxHeight) }]}
         contentContainerStyle={styles.listContent}
-        nestedScrollEnabled
-        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={(_, height) => {
-          const next = Math.min(Math.ceil(height), resultMaxHeight)
-          setListHeight(prev => prev === next ? prev : next)
+          setListHeight(Math.ceil(height))
         }}
       >
         {
@@ -285,7 +283,10 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
               key={`${candidate.source}_${candidate.id}`}
               candidate={candidate}
               selected={selected?.source === candidate.source && selected.id === candidate.id}
-              onPress={setSelected}
+              onPress={candidate => {
+                Keyboard.dismiss()
+                setSelected(candidate)
+              }}
             />
           ))
         }
@@ -295,8 +296,8 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
 
   return (
     visible
-      ? <Dialog ref={dialogRef} title={t('cover_match_title')} height={'78%'} width={'90%'} onHide={handleHide}>
-          <View style={styles.content} onStartShouldSetResponder={() => true}>
+      ? <Dialog appearance="media" ref={dialogRef} title={t('cover_match_title')} height={'78%'} width={'90%'} onHide={handleHide}>
+          <View style={mediaEditStyles.content}>
             <View style={styles.searchRow}>
               <View style={styles.searchInputWrap}>
                 <Input
@@ -304,79 +305,63 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
                   value={keyword}
                   onChangeText={setKeyword}
                   placeholder={t('cover_match_search_placeholder')}
+                  placeholderTextColor={theme['c-700']}
                   returnKeyType="search"
                   onSubmitEditing={() => { void startSearch(keyword) }}
-                  style={{ ...styles.input, backgroundColor: theme['c-primary-input-background'] }}
+                  style={[mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }]}
                   clearBtn
                 />
               </View>
               <View style={styles.searchBtnWrap}>
-                <ButtonPrimary disabled={searchState === 'loading'} onPress={() => { void startSearch(keyword) }}>
+                <MediaAction disabled={searchState === 'loading'} onPress={() => { void startSearch(keyword) }}>
                   {t('cover_match_search')}
-                </ButtonPrimary>
+                </MediaAction>
               </View>
             </View>
             {isSuspectInstrumental ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('cover_match_suspect_instrumental')}</Text> : null}
             <View style={styles.resultHeader}>
-              <Text size={12} color={theme['c-font-label']}>{t('cover_match_result_title', { num: candidates.length })}</Text>
+              <Text size={13} style={mediaEditStyles.title}>{t('cover_match_result_title', { num: candidates.length })}</Text>
             </View>
-            <View style={styles.candidateArea}>
+            <View style={styles.resultsAndPreview} onLayout={({ nativeEvent }) => { setResultsAreaHeight(nativeEvent.layout.height) }}>
               {renderCandidateArea()}
+              <View style={[styles.divider, { backgroundColor: theme['c-250'] }]} />
+              <Text size={13} style={mediaEditStyles.title}>{t('cover_match_preview')}</Text>
+              <ScrollView
+                key={selected ? `${selected.source}_${selected.id}` : undefined}
+                style={styles.previewScroll}
+                contentContainerStyle={styles.previewContent}
+              >
+                {selected?.albumName
+                  ? <Text size={12} color={theme['c-700']} style={styles.album}>{t('cover_match_album', { album: selected.albumName })}</Text>
+                  : null}
+                {selectedInstrumental
+                  ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('cover_match_inst_warning')}</Text>
+                  : null}
+                {durationDiff != null && durationDiff > 10
+                  ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>
+                      {t('cover_match_duration_diff', {
+                        diff: Math.round(durationDiff),
+                        candidate: formatPlayTime2(selected!.durationSec!),
+                        current: formatPlayTime2(durationSec!),
+                      })}
+                    </Text>
+                  : null}
+                {selected
+                  ? <Image url={selected.coverUrl} style={{ width: previewSize, height: previewSize, borderRadius: 8 }} resizeMode="contain" />
+                  : <Text size={12} color={theme['c-700']}>{t('cover_match_select_tip')}</Text>}
+              </ScrollView>
             </View>
-            <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
-            <View style={styles.previewArea}>
-              <Text size={12} color={theme['c-font-label']}>{t('cover_match_preview')}</Text>
-              {selectedInstrumental
-                ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('cover_match_inst_warning')}</Text>
+            <Text size={11} color={theme['c-700']}>{t('cover_match_apply_tip')}</Text>
+            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-250'] }]}>
+              {coverState.imageExists
+                ? <MediaAction kind="danger" disabled={!canDelete} onPress={() => { void handleDelete() }}>
+                    {deleting ? t('cover_match_deleting') : t('cover_match_delete')}
+                  </MediaAction>
                 : null}
-              {durationDiff != null && durationDiff > 10
-                ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>
-                    {t('cover_match_duration_diff', {
-                      diff: Math.round(durationDiff),
-                      candidate: formatPlayTime2(selected!.durationSec!),
-                      current: formatPlayTime2(durationSec!),
-                    })}
-                  </Text>
-                : null}
-              <View style={styles.previewContent}>
-                {
-                  selected
-                    ? <Image url={selected.coverUrl} style={{ width: previewSize, height: previewSize, borderRadius: 4 }} resizeMode="contain" />
-                    : <Text size={12} color={theme['c-font-label']}>
-                        {candidates.length ? t('cover_match_select_tip') : t('cover_match_preview_empty')}
-                      </Text>
-                }
-              </View>
-            </View>
-            <View style={styles.footer}>
-              <Text size={11} color={theme['c-font-label']} style={styles.footerTip} numberOfLines={2}>{t('cover_match_apply_tip')}</Text>
-              <View style={styles.footerRow}>
-                <View style={styles.footerLeft}>
-                  {
-                    coverState.imageExists
-                      ? <Button
-                          style={{ ...styles.footerBtn, backgroundColor: theme['c-button-background'] }}
-                          disabled={!canDelete}
-                          onPress={() => { void handleDelete() }}
-                        >
-                          <Text color={theme['c-button-font']}>{deleting ? t('cover_match_deleting') : t('cover_match_delete')}</Text>
-                        </Button>
-                      : null
-                  }
-                </View>
-                <View style={styles.footerRight}>
-                  <Button
-                    style={{ ...styles.footerBtn, backgroundColor: theme['c-button-background'] }}
-                    disabled={applying || deleting}
-                    onPress={() => { dialogRef.current?.setVisible(false) }}
-                  >
-                    <Text color={theme['c-button-font']}>{t('cancel')}</Text>
-                  </Button>
-                  <ButtonPrimary disabled={!canApply} onPress={() => { void handleApply() }}>
-                    {applying ? t('cover_match_applying') : t('cover_match_apply')}
-                  </ButtonPrimary>
-                </View>
-              </View>
+              <MediaAction disabled={applying || deleting} onPress={() => { dialogRef.current?.setVisible(false) }}>{t('cancel')}</MediaAction>
+              <MediaAction kind="primary" disabled={!canApply} onPress={() => { void handleApply() }}>
+                {applying ? t('cover_match_applying') : t('cover_match_apply')}
+              </MediaAction>
             </View>
           </View>
         </Dialog>
@@ -385,20 +370,10 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
 })
 
 const styles = createStyle({
-  content: {
-    flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'flex-start',
-    overflow: 'hidden',
-    paddingLeft: 12,
-    paddingRight: 12,
-    paddingTop: 10,
-    paddingBottom: 76,
-  },
   searchRow: {
     flexGrow: 0,
     flexShrink: 0,
-    height: 52,
+    height: 46,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -415,11 +390,6 @@ const styles = createStyle({
     height: 36,
     justifyContent: 'center',
   },
-  input: {
-    flexGrow: 1,
-    flexShrink: 1,
-    borderRadius: 4,
-  },
   resultHeader: {
     flexGrow: 0,
     flexShrink: 0,
@@ -429,9 +399,9 @@ const styles = createStyle({
     marginTop: 8,
     marginBottom: 4,
   },
-  candidateArea: {
-    flexGrow: 0,
-    flexShrink: 0,
+  resultsAndPreview: {
+    flex: 1,
+    minHeight: 0,
   },
   listScroll: {
     flexGrow: 0,
@@ -445,59 +415,26 @@ const styles = createStyle({
     justifyContent: 'center',
     paddingVertical: 18,
   },
-  previewArea: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 0,
+  previewScroll: {
+    flex: 1,
     minHeight: 0,
-    marginTop: 6,
   },
   previewContent: {
     flexGrow: 1,
-    flexShrink: 1,
-    minHeight: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  album: {
+    textAlign: 'center',
   },
   divider: {
     height: 1,
-    marginTop: 8,
+    marginTop: 6,
+    marginBottom: 6,
   },
   hint: {
     marginTop: 2,
-  },
-  footer: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 8,
-    flexDirection: 'column',
-  },
-  footerTip: {
-    marginBottom: 6,
-  },
-  footerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  footerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexGrow: 0,
-    flexShrink: 1,
-  },
-  footerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexGrow: 0,
-    flexShrink: 0,
-  },
-  footerBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 4,
-    marginRight: 10,
   },
 })

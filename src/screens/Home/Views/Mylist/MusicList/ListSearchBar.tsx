@@ -16,6 +16,8 @@ type SearchInputType = InputType
 
 const SearchInput = forwardRef<SearchInputType, SearchInputProps>(({ onSearch }, ref) => {
   const [text, setText] = useState('')
+  const t = useI18n()
+  const theme = useTheme()
 
   const handleChangeText = (text: string) => {
     setText(text)
@@ -25,7 +27,9 @@ const SearchInput = forwardRef<SearchInputType, SearchInputProps>(({ onSearch },
   return (
     <Input
       onChangeText={handleChangeText}
-      placeholder="Search for something..."
+      placeholder={t('list_search_placeholder')}
+      placeholderTextColor={theme['c-700']}
+      accessibilityLabel={t('list_search_placeholder')}
       value={text}
       style={styles.input}
       // onFocus={showTipList}

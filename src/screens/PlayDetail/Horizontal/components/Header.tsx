@@ -24,7 +24,7 @@ const Title = () => {
   return (
     <View style={styles.titleContent}>
       <Text numberOfLines={1} style={styles.title} size={14}>{musicInfo.name}</Text>
-      <Text numberOfLines={1} style={styles.title} size={12} color={theme['c-font-label']}>{musicInfo.singer}</Text>
+      <Text numberOfLines={1} style={styles.title} size={12} color={theme['c-700']}>{musicInfo.singer}</Text>
     </View>
   )
 }

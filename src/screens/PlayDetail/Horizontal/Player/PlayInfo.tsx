@@ -14,12 +14,12 @@ import { useBufferProgress } from '@/plugins/player'
 const PlayTimeCurrent = ({ timeStr }: { timeStr: string }) => {
   const theme = useTheme()
   // console.log(timeStr)
-  return <Text color={theme['c-500']}>{timeStr}</Text>
+  return <Text color={theme['c-700']}>{timeStr}</Text>
 }
 
 const PlayTimeMax = memo(({ timeStr }: { timeStr: string }) => {
   const theme = useTheme()
-  return <Text color={theme['c-500']}>{timeStr}</Text>
+  return <Text color={theme['c-700']}>{timeStr}</Text>
 })
 
 export default () => {
@@ -35,7 +35,7 @@ export default () => {
       </View>
       <View style={{ flexGrow: 0, flexShrink: 0, flexDirection: 'row' }} >
         <PlayTimeCurrent timeStr={nowPlayTimeStr} />
-        <Text color={theme['c-500']}> / </Text>
+        <Text color={theme['c-700']}> / </Text>
         <PlayTimeMax timeStr={maxPlayTimeStr} />
       </View>
       <View style={[StyleSheet.absoluteFill, styles.progress]}><Progress progress={progress} duration={maxPlayTime} buffered={buffered} /></View>

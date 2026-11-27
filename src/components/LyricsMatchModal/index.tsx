@@ -1,16 +1,16 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { ScrollView, View } from 'react-native'
+import { Keyboard, ScrollView, View } from 'react-native'
 
 import Dialog, { type DialogType } from '@/components/common/Dialog'
 import Text from '@/components/common/Text'
 import Input, { type InputType } from '@/components/common/Input'
-import Button from '@/components/common/Button'
-import ButtonPrimary from '@/components/common/ButtonPrimary'
+import MediaAction from '@/components/MediaEdit/Action'
+import { mediaEditStyles } from '@/components/MediaEdit/styles'
 import Loading from '@/components/common/Loading'
 import { useTheme } from '@/store/theme/hook'
 import { useI18n } from '@/lang'
 import { confirmDialog, createStyle, toast } from '@/utils/tools'
-import { useUnmounted, useWindowSize } from '@/utils/hooks'
+import { useUnmounted } from '@/utils/hooks'
 import { existsFile } from '@/utils/fs'
 import { applyLrcToMusic, getCandidateLyric, searchLyrics, updateMusicLyricSource } from '@/core/mediaMatch'
 import { getLyricPreviewEntries, sanitizeExtendedLyric, type LyricPreviewEntry } from '@/utils/mediaMatch/lrcText'
@@ -38,7 +38,6 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   const theme = useTheme()
   const dialogRef = useRef<DialogType>(null)
   const inputRef = useRef<InputType>(null)
-  const windowSize = useWindowSize()
   const musicInfoRef = useRef<LX.Music.MusicInfoLocal | null>(null)
   const listIdRef = useRef<string>('')
   const abortRef = useRef<AbortController | null>(null)
@@ -57,8 +56,9 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   const [lyricLoading, setLyricLoading] = useState(false)
   const [preview, setPreview] = useState<LyricPreviewEntry[]>([])
   const [applying, setApplying] = useState(false)
-  // 候选列表实测高度：按内容收缩、最多 resultMaxHeight，避免列表内容把预览/按钮顶出弹窗
+  // 候选列表按实测内容收缩，并由弹窗内容区限制最大高度。
   const [listHeight, setListHeight] = useState(0)
+  const [resultsAreaHeight, setResultsAreaHeight] = useState(0)
 
   useEffect(() => () => {
     abortRef.current?.abort()
@@ -91,6 +91,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   const startSearch = async(searchKeyword?: string) => {
     const musicInfo = musicInfoRef.current
     if (!musicInfo) return
+    Keyboard.dismiss()
 
     abortRef.current?.abort()
     lyricAbortRef.current?.abort()
@@ -111,8 +112,6 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
       const result = await searchLyrics({ musicInfo, keyword: searchKeyword, signal: controller.signal })
       if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
       setCandidates(result)
-      // 先按最大高度占位，等列表实测内容高度后再收缩，避免首帧把预览/按钮顶出弹窗
-      setListHeight(result.length ? Math.max(96, Math.round(windowSize.height * 0.32)) : 0)
       setSearchState('success')
     } catch (error: any) {
       if (isUnmounted.current || seq !== requestSeq.current || controller.signal.aborted) return
@@ -143,6 +142,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   }
 
   const handleSelect = async(candidate: LX.Music.LyricsCandidate) => {
+    Keyboard.dismiss()
     lyricAbortRef.current?.abort()
     const controller = new AbortController()
     lyricAbortRef.current = controller
@@ -296,8 +296,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
   const canApply = !!selected && !!fetchedLyric && !lyricLoading && !applying && searchState !== 'loading'
   const hasTranslation = !!sanitizeExtendedLyric(fetchedLyric?.tlyric)
   const hasRomaji = !!sanitizeExtendedLyric(fetchedLyric?.rlyric)
-  // 候选列表固定最大高度（约屏幕 32%），避免与预览区互相抢 flex 空间
-  const resultMaxHeight = Math.max(96, Math.round(windowSize.height * 0.30))
+  const resultMaxHeight = Math.floor(resultsAreaHeight * 0.40)
 
   const renderCandidateArea = () => {
     if (searchState === 'loading') {
@@ -306,23 +305,24 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
     if (searchState === 'error') {
       return (
         <View style={styles.center}>
-          <Text size={13} color={theme['c-font-label']}>{t('lyrics_match_error')}</Text>
-          <ButtonPrimary onPress={() => { void startSearch(keyword) }}>{t('lyrics_match_retry')}</ButtonPrimary>
+          <Text size={13} color={theme['c-700']}>{t('lyrics_match_error')}</Text>
+          <MediaAction onPress={() => { void startSearch(keyword) }}>{t('lyrics_match_retry')}</MediaAction>
         </View>
       )
     }
-    if (searchState === 'success' && !candidates.length) {
-      return <View style={styles.center}><Text size={13} color={theme['c-font-label']}>{t('lyrics_match_empty')}</Text></View>
+    if (!candidates.length) {
+      return searchState === 'success'
+        ? <View style={styles.center}><Text size={13} color={theme['c-700']}>{t('lyrics_match_empty')}</Text></View>
+        : null
     }
     return (
       <ScrollView
-        style={[styles.listScroll, { maxHeight: resultMaxHeight }, listHeight > 0 ? { height: Math.min(listHeight, resultMaxHeight) } : null]}
+        style={[styles.listScroll, { height: Math.min(listHeight || resultMaxHeight, resultMaxHeight) }]}
         contentContainerStyle={styles.listContent}
-        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         onContentSizeChange={(_, height) => {
-          const next = Math.min(Math.ceil(height), resultMaxHeight)
-          setListHeight(prev => prev === next ? prev : next)
+          setListHeight(Math.ceil(height))
         }}
       >
         {
@@ -341,8 +341,8 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
 
   return (
     visible
-      ? <Dialog ref={dialogRef} title={t('lyrics_match_title')} height={'78%'} width={'90%'} onHide={handleHide}>
-          <View style={styles.content} onStartShouldSetResponder={() => true}>
+      ? <Dialog appearance="media" ref={dialogRef} title={t('lyrics_match_title')} height={'78%'} width={'90%'} onHide={handleHide}>
+          <View style={mediaEditStyles.content}>
             <View style={styles.searchRow}>
               <View style={styles.searchInputWrap}>
                 <Input
@@ -350,73 +350,76 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
                   value={keyword}
                   onChangeText={setKeyword}
                   placeholder={t('lyrics_match_search_placeholder')}
+                  placeholderTextColor={theme['c-700']}
                   returnKeyType="search"
                   onSubmitEditing={() => { void startSearch(keyword) }}
-                  style={{ ...styles.input, backgroundColor: theme['c-primary-input-background'] }}
+                  style={[mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }]}
                   clearBtn
                 />
               </View>
               <View style={styles.searchBtnWrap}>
-                <ButtonPrimary disabled={searchState === 'loading'} onPress={() => { void startSearch(keyword) }}>
+                <MediaAction disabled={searchState === 'loading'} onPress={() => { void startSearch(keyword) }}>
                   {t('lyrics_match_search')}
-                </ButtonPrimary>
+                </MediaAction>
               </View>
             </View>
             {isSuspectInstrumental ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_suspect_instrumental')}</Text> : null}
             <View style={styles.resultHeader}>
-              <Text size={12} color={theme['c-font-label']}>{t('lyrics_match_result_title', { num: candidates.length })}</Text>
+              <Text size={13} style={mediaEditStyles.title} color={theme['c-font']}>{t('lyrics_match_result_title', { num: candidates.length })}</Text>
             </View>
-            <View style={styles.candidateArea}>
+            <View style={styles.resultsAndPreview} onLayout={({ nativeEvent }) => { setResultsAreaHeight(nativeEvent.layout.height) }}>
               {renderCandidateArea()}
-            </View>
-            <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
-            <View style={styles.previewArea}>
-              <View style={styles.previewHeader}>
-                <Text size={12} color={theme['c-font-label']}>{t('lyrics_match_preview')}</Text>
-                {hasTranslation ? <Text size={11} color={theme['c-font-label']} style={styles.previewTag}>{t('lyrics_match_translation_available')}</Text> : null}
-                {hasRomaji ? <Text size={11} color={theme['c-font-label']} style={styles.previewTag}>{t('lyrics_match_roma_available')}</Text> : null}
+              <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
+              <View style={styles.previewArea}>
+                <View style={styles.previewHeader}>
+                  <Text size={13} style={mediaEditStyles.title} color={theme['c-font']}>{t('lyrics_match_preview')}</Text>
+                  {hasTranslation ? <Text size={11} color={theme['c-700']} style={styles.previewTag}>{t('lyrics_match_translation_available')}</Text> : null}
+                  {hasRomaji ? <Text size={11} color={theme['c-700']} style={styles.previewTag}>{t('lyrics_match_roma_available')}</Text> : null}
+                </View>
+                <ScrollView
+                  key={selected ? `${selected.source}_${selected.id}` : undefined}
+                  style={styles.previewScroll}
+                  contentContainerStyle={styles.previewContent}
+                >
+                  {selected?.instrumental
+                    ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_inst_warning')}</Text>
+                    : null}
+                  {fetchedLyric && !fetchedLyric.isSynced
+                    ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_plain_tip')}</Text>
+                    : null}
+                  {durationDiff != null && durationDiff > 10
+                    ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>
+                        {t('lyrics_match_duration_diff', {
+                          diff: Math.round(durationDiff),
+                          candidate: formatPlayTime2(selected!.durationSec!),
+                          current: formatPlayTime2(durationSec!),
+                        })}
+                      </Text>
+                    : null}
+                  {
+                    lyricLoading
+                      ? <Loading size={14} label={t('lyrics_match_lyric_loading')} />
+                      : lyricUnavailable
+                        ? <Text size={12} color={theme['c-primary-font']}>{t('lyrics_match_no_lyric')}</Text>
+                        : preview.length
+                          ? preview.map((entry, index) => (
+                              <Text
+                                key={index}
+                                size={entry.type === 'main' ? 12 : 11}
+                                color={entry.type === 'main' ? undefined : theme['c-700']}
+                                selectable
+                              >{entry.text}</Text>
+                          ))
+                          : <Text size={12} color={theme['c-700']}>{selected ? t('lyrics_match_preview_empty') : t('lyrics_match_select_tip')}</Text>
+                  }
+                </ScrollView>
               </View>
-              {selected?.instrumental
-                ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_inst_warning')}</Text>
-                : null}
-              {fetchedLyric && !fetchedLyric.isSynced
-                ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_plain_tip')}</Text>
-                : null}
-              {durationDiff != null && durationDiff > 10
-                ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>
-                    {t('lyrics_match_duration_diff', {
-                      diff: Math.round(durationDiff),
-                      candidate: formatPlayTime2(selected!.durationSec!),
-                      current: formatPlayTime2(durationSec!),
-                    })}
-                  </Text>
-                : null}
-              <ScrollView style={styles.previewScroll} contentContainerStyle={styles.previewContent} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                {
-                  lyricLoading
-                    ? <Loading size={14} label={t('lyrics_match_lyric_loading')} />
-                    : lyricUnavailable
-                      ? <Text size={12} color={theme['c-primary-font']}>{t('lyrics_match_no_lyric')}</Text>
-                      : preview.length
-                        ? preview.map((entry, index) => (
-                            <Text
-                              key={index}
-                              size={entry.type === 'main' ? 12 : 11}
-                              color={entry.type === 'main' ? undefined : theme['c-font-label']}
-                              selectable
-                            >{entry.text}</Text>
-                        ))
-                        : <Text size={12} color={theme['c-font-label']}>{selected ? t('lyrics_match_preview_empty') : t('lyrics_match_select_tip')}</Text>
-                }
-              </ScrollView>
             </View>
-            <View style={styles.footer}>
-              <Button style={{ ...styles.footerBtn, backgroundColor: theme['c-button-background'] }} onPress={() => { dialogRef.current?.setVisible(false) }}>
-                <Text color={theme['c-button-font']}>{t('cancel')}</Text>
-              </Button>
-              <ButtonPrimary disabled={!canApply} onPress={() => { void handleApply() }}>
+            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-250'] }]}>
+              <MediaAction onPress={() => { dialogRef.current?.setVisible(false) }}>{t('cancel')}</MediaAction>
+              <MediaAction kind="primary" disabled={!canApply} onPress={() => { void handleApply() }}>
                 {applying ? t('lyrics_match_applying') : t('lyrics_match_apply')}
-              </ButtonPrimary>
+              </MediaAction>
             </View>
           </View>
         </Dialog>
@@ -425,20 +428,10 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
 })
 
 const styles = createStyle({
-  content: {
-    flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'flex-start',
-    overflow: 'hidden',
-    paddingLeft: 12,
-    paddingRight: 12,
-    paddingTop: 10,
-    paddingBottom: 56,
-  },
   searchRow: {
     flexGrow: 0,
     flexShrink: 0,
-    height: 52,
+    height: 46,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -455,11 +448,6 @@ const styles = createStyle({
     height: 36,
     justifyContent: 'center',
   },
-  input: {
-    flexGrow: 1,
-    flexShrink: 1,
-    borderRadius: 4,
-  },
   resultHeader: {
     flexGrow: 0,
     flexShrink: 0,
@@ -469,9 +457,9 @@ const styles = createStyle({
     marginTop: 8,
     marginBottom: 4,
   },
-  candidateArea: {
-    flexGrow: 0,
-    flexShrink: 0,
+  resultsAndPreview: {
+    flex: 1,
+    minHeight: 0,
   },
   listScroll: {
     flexGrow: 0,
@@ -494,8 +482,10 @@ const styles = createStyle({
   },
   previewHeader: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 10,
+    columnGap: 10,
+    rowGap: 2,
   },
   previewTag: {
     opacity: 0.85,
@@ -507,6 +497,7 @@ const styles = createStyle({
   previewScroll: {
     flexGrow: 1,
     flexShrink: 1,
+    flexBasis: 0,
     minHeight: 0,
     marginTop: 2,
   },
@@ -515,20 +506,5 @@ const styles = createStyle({
   },
   hint: {
     marginTop: 2,
-  },
-  footer: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  footerBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 4,
-    marginRight: 10,
   },
 })

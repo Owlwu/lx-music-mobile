@@ -1,10 +1,11 @@
-import { useRef, useImperativeHandle, forwardRef, useState, useEffect } from 'react'
+import { useRef, useImperativeHandle, forwardRef, useEffect } from 'react'
 import SearchTipList, { type SearchTipListProps as _SearchTipListProps, type SearchTipListType } from '@/components/SearchTipList'
 import { debounce } from '@/utils'
 import { searchListMusic } from './listAction'
 import Button from '@/components/common/Button'
 import { createStyle } from '@/utils/tools'
 import Text from '@/components/common/Text'
+import { useI18n } from '@/lang'
 import { useTheme } from '@/store/theme/hook'
 import { View } from 'react-native'
 import { scaleSizeH } from '@/utils/pixelRatio'
@@ -30,54 +31,52 @@ export const debounceSearchList = debounce((text: string, list: LX.List.ListMusi
 
 export default forwardRef<ListMusicSearchType, ListMusicSearchProps>(({ onScrollToInfo }, ref) => {
   const searchTipListRef = useRef<SearchTipListType<LX.Music.MusicInfo>>(null)
-  const [visible, setVisible] = useState(false)
-  const currentListIdRef = useRef('')
+  const searchRequest = useRef(0)
   const currentKeywordRef = useRef('')
   const theme = useTheme()
+  const t = useI18n()
+
+  const search = (id: string, keyword: string) => {
+    const request = ++searchRequest.current
+    if (!keyword) {
+      searchTipListRef.current?.setList([])
+      return
+    }
+    void getListMusics(id).then(list => {
+      if (request !== searchRequest.current) return
+      debounceSearchList(keyword, list, (matches) => {
+        if (request !== searchRequest.current) return
+        searchTipListRef.current?.setList(matches, true)
+      })
+    })
+  }
 
   const handleShowList = (keyword: string, height: number) => {
     searchTipListRef.current?.setHeight(height)
     currentKeywordRef.current = keyword
-    const id = currentListIdRef.current = listState.activeListId
-    if (keyword) {
-      void getListMusics(id).then(list => {
-        debounceSearchList(keyword, list, (list) => {
-          if (currentListIdRef.current != id) return
-          searchTipListRef.current?.setList(list)
-        })
-      })
-    } else {
-      searchTipListRef.current?.setList([])
-    }
+    search(listState.activeListId, keyword)
+  }
+
+  const invalidateSearch = () => { searchRequest.current++ }
+
+  const dismissResults = () => {
+    invalidateSearch()
+    searchTipListRef.current?.setList([])
   }
 
   useImperativeHandle(ref, () => ({
     search(keyword, height) {
-      if (visible) handleShowList(keyword, height)
-      else {
-        setVisible(true)
-        requestAnimationFrame(() => {
-          handleShowList(keyword, height)
-        })
-      }
+      handleShowList(keyword, height)
     },
     hide() {
       currentKeywordRef.current = ''
-      currentListIdRef.current = ''
-      searchTipListRef.current?.setList([])
+      dismissResults()
     },
   }))
 
   useEffect(() => {
     const updateList = (id: string) => {
-      currentListIdRef.current = id
-      if (!currentKeywordRef.current) return
-      void getListMusics(listState.activeListId).then(list => {
-        debounceSearchList(currentKeywordRef.current, list, (list) => {
-          if (currentListIdRef.current != id) return
-          searchTipListRef.current?.setList(list)
-        })
-      })
+      search(id, currentKeywordRef.current)
     }
     const handleChange = (ids: string[]) => {
       if (!ids.includes(listState.activeListId)) return
@@ -88,9 +87,11 @@ export default forwardRef<ListMusicSearchType, ListMusicSearchProps>(({ onScroll
     global.app_event.on('myListMusicUpdate', handleChange)
 
     return () => {
+      invalidateSearch()
       global.state_event.off('mylistToggled', updateList)
       global.app_event.off('myListMusicUpdate', handleChange)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const renderItem = ({ item, index }: { item: LX.Music.MusicInfo, index: number }) => {
@@ -98,9 +99,9 @@ export default forwardRef<ListMusicSearchType, ListMusicSearchProps>(({ onScroll
       <Button style={styles.item} onPress={() => { onScrollToInfo(item) }} key={index}>
         <View style={styles.itemName}>
           <Text numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.subName} numberOfLines={1} size={12} color={theme['c-font-label']}>{item.singer} ({item.meta.albumName})</Text>
+          <Text style={styles.subName} numberOfLines={1} size={12} color={theme['c-700']}>{item.singer} ({item.meta.albumName})</Text>
         </View>
-        <Text style={styles.itemSource} size={12} color={theme['c-font-label']}>{item.source}</Text>
+        <Text style={styles.itemSource} size={12} color={theme['c-700']}>{item.source}</Text>
       </Button>
     )
   }
@@ -110,20 +111,23 @@ export default forwardRef<ListMusicSearchType, ListMusicSearchProps>(({ onScroll
   }
 
   return (
-    visible
-      ? <SearchTipList
-          ref={searchTipListRef}
-          renderItem={renderItem}
-          onPressBg={() => searchTipListRef.current?.setList([])}
-          keyExtractor={getkey}
-          getItemLayout={getItemLayout}
-        />
-      : null
+    <SearchTipList
+      ref={searchTipListRef}
+      renderItem={renderItem}
+      onPressBg={dismissResults}
+      ListEmptyComponent={<Text accessibilityLiveRegion="polite" style={styles.empty} size={13} color={theme['c-700']}>{t('list_search_no_results')}</Text>}
+      keyExtractor={getkey}
+      getItemLayout={getItemLayout}
+    />
   )
 })
 
 
 const styles = createStyle({
+  empty: {
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+  },
   item: {
     height: ITEM_HEIGHT,
     flexDirection: 'row',

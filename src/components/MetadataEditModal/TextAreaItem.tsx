@@ -1,8 +1,9 @@
 import { memo, useCallback } from 'react'
 
-import { StyleSheet, TouchableOpacity, View } from 'react-native'
+import { TouchableOpacity, View } from 'react-native'
 import type { InputProps } from '@/components/common/Input'
 import Input from '@/components/common/Input'
+import { mediaEditStyles } from '@/components/MediaEdit/styles'
 import { useTheme } from '@/store/theme/hook'
 import Text from '@/components/common/Text'
 import { createStyle } from '@/utils/tools'
@@ -35,12 +36,13 @@ export default memo(({ value, label, onChanged, style, ...props }: TextAreaItemP
         }
       </View>
       <Input
+        accessibilityLabel={label}
         value={value}
         onChangeText={onChanged}
         scrollEnabled={false}
         textAlignVertical='top'
         multiline
-        style={StyleSheet.compose({ ...styles.textarea, backgroundColor: theme['c-primary-input-background'] }, style)}
+        style={[styles.textarea, mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }, style]}
         {...props}
        />
     </View>

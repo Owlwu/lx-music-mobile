@@ -1,5 +1,5 @@
 import { useImperativeHandle, forwardRef, useMemo, useRef } from 'react'
-import { View, TouchableHighlight } from 'react-native'
+import { Pressable, StyleSheet, View, TouchableHighlight } from 'react-native'
 
 import Modal, { type ModalType } from './Modal'
 import { Icon } from '@/components/common/Icon'
@@ -7,6 +7,7 @@ import { useKeyboard } from '@/utils/hooks'
 import { createStyle } from '@/utils/tools'
 import { useTheme } from '@/store/theme/hook'
 import Text from './Text'
+import { useI18n } from '@/lang'
 import { scaleSizeH } from '@/utils/pixelRatio'
 
 const HEADER_HEIGHT = 20
@@ -45,6 +46,23 @@ const styles = createStyle({
     paddingRight: 25,
     lineHeight: HEADER_HEIGHT,
   },
+  mediaHeader: {
+    minHeight: 44,
+    paddingLeft: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  mediaTitle: {
+    flex: 1,
+    fontWeight: '600',
+  },
+  mediaClose: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   closeBtn: {
     position: 'absolute',
     right: 0,
@@ -62,6 +80,7 @@ export interface DialogProps {
   keyHide?: boolean
   bgHide?: boolean
   closeBtn?: boolean
+  appearance?: 'media'
   title?: string
   children: React.ReactNode | React.ReactNode[]
   height?: number | `${number}%`
@@ -81,11 +100,14 @@ export default forwardRef<DialogType, DialogProps>(({
   bgHide = true,
   closeBtn = true,
   title = '',
+  appearance,
   children,
   height,
   width,
 }: DialogProps, ref) => {
   const theme = useTheme()
+  const t = useI18n()
+  const isMedia = appearance === 'media'
   const { keyboardShown, keyboardHeight } = useKeyboard()
   const modalRef = useRef<ModalType>(null)
 
@@ -97,15 +119,17 @@ export default forwardRef<DialogType, DialogProps>(({
 
   const closeBtnComponent = useMemo(() => {
     return closeBtn
-      ? <TouchableHighlight style={{ ...styles.closeBtn, width: scaleSizeH(HEADER_HEIGHT) }} underlayColor={theme['c-primary-dark-200-alpha-600']} onPress={() => modalRef.current?.setVisible(false)}>
-          <Icon name="close" color={theme['c-primary-dark-500-alpha-500']} size={10} />
+      ? <TouchableHighlight accessibilityRole="button" accessibilityLabel={t('close')} style={isMedia ? styles.mediaClose : { ...styles.closeBtn, width: scaleSizeH(HEADER_HEIGHT) }} underlayColor={theme['c-primary-dark-200-alpha-600']} onPress={() => modalRef.current?.setVisible(false)}>
+          <Icon name="close" color={isMedia ? theme['c-700'] : theme['c-primary-dark-500-alpha-500']} size={isMedia ? 14 : 10} />
         </TouchableHighlight>
       : null
-  }, [closeBtn, theme])
+  }, [closeBtn, isMedia, t, theme])
 
   return (
-    <Modal onHide={onHide} keyHide={keyHide} bgHide={bgHide} bgColor="rgba(50,50,50,.3)" ref={modalRef}>
+    <Modal onHide={onHide} keyHide={keyHide} bgHide={false} bgColor="rgba(50,50,50,.3)" ref={modalRef}>
       <View style={{ ...styles.centeredView, paddingBottom: keyboardShown ? keyboardHeight : 0 }}>
+        {/* 遮罩和弹窗并列，弹窗内的列表可以直接处理滚动手势。 */}
+        {bgHide ? <Pressable style={StyleSheet.absoluteFill} accessible={false} onPress={() => modalRef.current?.setVisible(false)} /> : null}
         <View style={{
           ...styles.modalView,
           maxWidth: width ? undefined : '90%',
@@ -114,9 +138,16 @@ export default forwardRef<DialogType, DialogProps>(({
           maxHeight: height ? undefined : '78%',
           height,
           backgroundColor: theme['c-content-background'],
-        }} onStartShouldSetResponder={() => true}>
-          <View style={{ ...styles.header, backgroundColor: theme['c-primary-light-100-alpha-100'] }}>
-            <Text style={styles.title} size={13} color={theme['c-primary-light-1000']} numberOfLines={1}>{title}</Text>
+          borderRadius: isMedia ? 14 : styles.modalView.borderRadius,
+        }}>
+          <View style={isMedia ? [styles.mediaHeader, { borderBottomColor: theme['c-250'] }] : { ...styles.header, backgroundColor: theme['c-primary-light-100-alpha-100'] }}>
+            <Text
+              accessibilityRole={isMedia ? 'header' : undefined}
+              style={isMedia ? styles.mediaTitle : styles.title}
+              size={isMedia ? 16 : 13}
+              color={isMedia ? theme['c-font'] : theme['c-primary-light-1000']}
+              numberOfLines={1}
+            >{title}</Text>
             {closeBtnComponent}
           </View>
           {children}

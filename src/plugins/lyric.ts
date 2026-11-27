@@ -92,6 +92,23 @@ export const play = (time: number) => {
   lrcTools.isPlay = true
   lrcTools.lrc!.play(time)
 }
+/** 更新暂停时的当前歌词行，无需启动歌词计时器。 */
+export const seekPaused = (time: number) => {
+  const parser = lrcTools.lrc
+  const lines = lrcTools.currentLines
+  if (!parser || !lines.length) return
+
+  const position = time + parser.tags.offset + parser.offset
+  let low = 0
+  let high = lines.length
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    if (lines[mid].time <= position) low = mid + 1
+    else high = mid
+  }
+  const line = Math.max(0, low - 1)
+  lrcTools.onPlay(line, lines[line].text)
+}
 export const pause = () => {
   // console.log('pause')
   lrcTools.isPlay = false

@@ -10,7 +10,7 @@ export interface SearchTipListProps<T> extends ListProps<T> {
   onPressBg?: () => void
 }
 export interface SearchTipListType<T> {
-  setList: (list: T[]) => void
+  setList: (list: T[], showEmpty?: boolean) => void
   setHeight: (height: number) => void
 }
 
@@ -23,15 +23,17 @@ const Component = <T extends ItemT<T>>({ onPressBg = noop, ...props }: SearchTip
   const [visible, setVisible] = useState(false)
   const [animatePlayed, setAnimatPlayed] = useState(true)
   const listRef = useRef<ListType<T>>(null)
-  const prevListRef = useRef<T[]>([])
+  const showingRef = useRef(false)
   const heightRef = useRef(0)
 
   useImperativeHandle(ref, () => ({
-    setList(list) {
-      if (prevListRef.current.length) {
-        if (!list.length) handleHide()
-      } else if (list.length) handleShow()
-      prevListRef.current = list
+    setList(list, showEmpty = false) {
+      const showing = list.length > 0 || showEmpty
+      if (showing !== showingRef.current) {
+        if (showing) handleShow()
+        else handleHide()
+      }
+      showingRef.current = showing
       requestAnimationFrame(() => {
         listRef.current?.setList(list)
       })
