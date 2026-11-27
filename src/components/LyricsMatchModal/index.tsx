@@ -352,7 +352,7 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
                   placeholder={t('lyrics_match_search_placeholder')}
                   returnKeyType="search"
                   onSubmitEditing={() => { void startSearch(keyword) }}
-                  style={[mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }]}
+                  style={[mediaEditStyles.field, mediaEditStyles.searchField, { backgroundColor: theme['c-primary-input-background'] }]}
                   clearBtn
                 />
               </View>

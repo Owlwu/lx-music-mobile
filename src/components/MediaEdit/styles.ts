@@ -8,8 +8,10 @@ export const mediaEditStyles = StyleSheet.create({
     paddingBottom: 10,
   },
   field: {
-    borderRadius: 7,
     paddingHorizontal: 8,
+  },
+  searchField: {
+    borderRadius: 4,
   },
   footer: {
     flexShrink: 0,

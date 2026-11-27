@@ -138,7 +138,6 @@ export default forwardRef<DialogType, DialogProps>(({
           maxHeight: height ? undefined : '78%',
           height,
           backgroundColor: theme['c-content-background'],
-          borderRadius: isMedia ? 14 : styles.modalView.borderRadius,
         }}>
           <View style={isMedia ? [styles.mediaHeader, { backgroundColor: theme['c-primary-light-100-alpha-100'], borderBottomColor: theme['c-border-background'] }] : { ...styles.header, backgroundColor: theme['c-primary-light-100-alpha-100'] }}>
             <Text

@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   body: {
     flex: 1,

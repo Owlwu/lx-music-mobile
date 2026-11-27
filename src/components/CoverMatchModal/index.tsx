@@ -307,7 +307,7 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
                   placeholder={t('cover_match_search_placeholder')}
                   returnKeyType="search"
                   onSubmitEditing={() => { void startSearch(keyword) }}
-                  style={[mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }]}
+                  style={[mediaEditStyles.field, mediaEditStyles.searchField, { backgroundColor: theme['c-primary-input-background'] }]}
                   clearBtn
                 />
               </View>
@@ -346,7 +346,7 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
                     </Text>
                   : null}
                 {selected
-                  ? <Image url={selected.coverUrl} style={{ width: previewSize, height: previewSize, borderRadius: 8 }} resizeMode="contain" />
+                  ? <Image url={selected.coverUrl} style={{ width: previewSize, height: previewSize, borderRadius: 4 }} resizeMode="contain" />
                   : <Text size={12} color={theme['c-font-label']}>{t('cover_match_select_tip')}</Text>}
               </ScrollView>
             </View>
