@@ -120,7 +120,7 @@ export default forwardRef<DialogType, DialogProps>(({
   const closeBtnComponent = useMemo(() => {
     return closeBtn
       ? <TouchableHighlight accessibilityRole="button" accessibilityLabel={t('close')} style={isMedia ? styles.mediaClose : { ...styles.closeBtn, width: scaleSizeH(HEADER_HEIGHT) }} underlayColor={theme['c-primary-dark-200-alpha-600']} onPress={() => modalRef.current?.setVisible(false)}>
-          <Icon name="close" color={isMedia ? theme['c-700'] : theme['c-primary-dark-500-alpha-500']} size={isMedia ? 14 : 10} />
+          <Icon name="close" color={theme['c-primary-dark-500-alpha-500']} size={isMedia ? 14 : 10} />
         </TouchableHighlight>
       : null
   }, [closeBtn, isMedia, t, theme])
@@ -140,12 +140,12 @@ export default forwardRef<DialogType, DialogProps>(({
           backgroundColor: theme['c-content-background'],
           borderRadius: isMedia ? 14 : styles.modalView.borderRadius,
         }}>
-          <View style={isMedia ? [styles.mediaHeader, { borderBottomColor: theme['c-250'] }] : { ...styles.header, backgroundColor: theme['c-primary-light-100-alpha-100'] }}>
+          <View style={isMedia ? [styles.mediaHeader, { backgroundColor: theme['c-primary-light-100-alpha-100'], borderBottomColor: theme['c-border-background'] }] : { ...styles.header, backgroundColor: theme['c-primary-light-100-alpha-100'] }}>
             <Text
               accessibilityRole={isMedia ? 'header' : undefined}
               style={isMedia ? styles.mediaTitle : styles.title}
               size={isMedia ? 16 : 13}
-              color={isMedia ? theme['c-font'] : theme['c-primary-light-1000']}
+              color={theme['c-primary-light-1000']}
               numberOfLines={1}
             >{title}</Text>
             {closeBtnComponent}

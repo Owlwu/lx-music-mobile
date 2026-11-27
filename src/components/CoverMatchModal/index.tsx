@@ -258,14 +258,14 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
     if (searchState === 'error') {
       return (
         <View style={styles.center}>
-          <Text size={13} color={theme['c-700']}>{t('cover_match_error')}</Text>
+          <Text size={13} color={theme['c-font-label']}>{t('cover_match_error')}</Text>
           <MediaAction onPress={() => { void startSearch(keyword) }}>{t('cover_match_retry')}</MediaAction>
         </View>
       )
     }
     if (!candidates.length) {
       return searchState === 'success'
-        ? <View style={styles.center}><Text size={13} color={theme['c-700']}>{t('cover_match_empty')}</Text></View>
+        ? <View style={styles.center}><Text size={13} color={theme['c-font-label']}>{t('cover_match_empty')}</Text></View>
         : null
     }
     return (
@@ -305,7 +305,6 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
                   value={keyword}
                   onChangeText={setKeyword}
                   placeholder={t('cover_match_search_placeholder')}
-                  placeholderTextColor={theme['c-700']}
                   returnKeyType="search"
                   onSubmitEditing={() => { void startSearch(keyword) }}
                   style={[mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }]}
@@ -320,19 +319,19 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
             </View>
             {isSuspectInstrumental ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('cover_match_suspect_instrumental')}</Text> : null}
             <View style={styles.resultHeader}>
-              <Text size={13} style={mediaEditStyles.title}>{t('cover_match_result_title', { num: candidates.length })}</Text>
+              <Text size={13} style={mediaEditStyles.title} color={theme['c-font-label']}>{t('cover_match_result_title', { num: candidates.length })}</Text>
             </View>
             <View style={styles.resultsAndPreview} onLayout={({ nativeEvent }) => { setResultsAreaHeight(nativeEvent.layout.height) }}>
               {renderCandidateArea()}
-              <View style={[styles.divider, { backgroundColor: theme['c-250'] }]} />
-              <Text size={13} style={mediaEditStyles.title}>{t('cover_match_preview')}</Text>
+              <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
+              <Text size={13} style={mediaEditStyles.title} color={theme['c-font-label']}>{t('cover_match_preview')}</Text>
               <ScrollView
                 key={selected ? `${selected.source}_${selected.id}` : undefined}
                 style={styles.previewScroll}
                 contentContainerStyle={styles.previewContent}
               >
                 {selected?.albumName
-                  ? <Text size={12} color={theme['c-700']} style={styles.album}>{t('cover_match_album', { album: selected.albumName })}</Text>
+                  ? <Text size={12} color={theme['c-font-label']} style={styles.album}>{t('cover_match_album', { album: selected.albumName })}</Text>
                   : null}
                 {selectedInstrumental
                   ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('cover_match_inst_warning')}</Text>
@@ -348,11 +347,11 @@ export default forwardRef<CoverMatchModalType>((props, ref) => {
                   : null}
                 {selected
                   ? <Image url={selected.coverUrl} style={{ width: previewSize, height: previewSize, borderRadius: 8 }} resizeMode="contain" />
-                  : <Text size={12} color={theme['c-700']}>{t('cover_match_select_tip')}</Text>}
+                  : <Text size={12} color={theme['c-font-label']}>{t('cover_match_select_tip')}</Text>}
               </ScrollView>
             </View>
-            <Text size={11} color={theme['c-700']}>{t('cover_match_apply_tip')}</Text>
-            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-250'] }]}>
+            <Text size={11} color={theme['c-font-label']}>{t('cover_match_apply_tip')}</Text>
+            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-border-background'] }]}>
               {coverState.imageExists
                 ? <MediaAction kind="danger" disabled={!canDelete} onPress={() => { void handleDelete() }}>
                     {deleting ? t('cover_match_deleting') : t('cover_match_delete')}

@@ -13,7 +13,7 @@ interface CandidateProps {
 
 export default function MediaCandidate({ children, leading, label, selected, onPress }: CandidateProps) {
   const theme = useTheme()
-  const accent = theme['c-primary-dark-500']
+  const accent = theme['c-primary-font']
 
   return (
     <Pressable
@@ -22,8 +22,8 @@ export default function MediaCandidate({ children, leading, label, selected, onP
       accessibilityState={{ checked: selected }}
       onPress={onPress}
       style={({ pressed }) => [styles.card, {
-        backgroundColor: selected ? theme['c-primary-input-background'] : theme['c-content-background'],
-        borderColor: selected ? accent : theme['c-250'],
+        backgroundColor: selected ? theme['c-primary-background-active'] : theme['c-primary-input-background'],
+        borderColor: selected ? accent : 'transparent',
         opacity: pressed ? 0.8 : 1,
       }]}
     >

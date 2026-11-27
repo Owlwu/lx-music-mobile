@@ -99,9 +99,9 @@ export default forwardRef<ListMusicSearchType, ListMusicSearchProps>(({ onScroll
       <Button style={styles.item} onPress={() => { onScrollToInfo(item) }} key={index}>
         <View style={styles.itemName}>
           <Text numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.subName} numberOfLines={1} size={12} color={theme['c-700']}>{item.singer} ({item.meta.albumName})</Text>
+          <Text style={styles.subName} numberOfLines={1} size={12} color={theme['c-font-label']}>{item.singer} ({item.meta.albumName})</Text>
         </View>
-        <Text style={styles.itemSource} size={12} color={theme['c-700']}>{item.source}</Text>
+        <Text style={styles.itemSource} size={12} color={theme['c-font-label']}>{item.source}</Text>
       </Button>
     )
   }
@@ -115,7 +115,7 @@ export default forwardRef<ListMusicSearchType, ListMusicSearchProps>(({ onScroll
       ref={searchTipListRef}
       renderItem={renderItem}
       onPressBg={dismissResults}
-      ListEmptyComponent={<Text accessibilityLiveRegion="polite" style={styles.empty} size={13} color={theme['c-700']}>{t('list_search_no_results')}</Text>}
+      ListEmptyComponent={<Text accessibilityLiveRegion="polite" style={styles.empty} size={13} color={theme['c-font-label']}>{t('list_search_no_results')}</Text>}
       keyExtractor={getkey}
       getItemLayout={getItemLayout}
     />

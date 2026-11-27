@@ -12,10 +12,6 @@ interface MediaActionProps {
 export default function MediaAction({ children, onPress, kind = 'secondary', disabled = false }: MediaActionProps) {
   const theme = useTheme()
   const primary = kind === 'primary'
-  const color = disabled ? theme['c-650']
-    : primary ? (theme.isDark ? '#171717' : '#ffffff')
-      : kind === 'danger' ? (theme.isDark ? '#ffb4ab' : '#a12620') : theme['c-font']
-  const backgroundColor = disabled ? theme['c-150'] : primary ? theme['c-primary-dark-500'] : 'transparent'
 
   return (
     <Pressable
@@ -24,12 +20,12 @@ export default function MediaAction({ children, onPress, kind = 'secondary', dis
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [styles.action, {
-        backgroundColor,
-        borderColor: primary || disabled ? backgroundColor : theme['c-350'],
-        opacity: pressed ? 0.8 : 1,
+        backgroundColor: theme['c-button-background'],
+        borderColor: primary ? 'transparent' : theme['c-border-background'],
+        opacity: disabled ? 0.3 : pressed ? 0.8 : 1,
       }]}
     >
-      <Text size={13} color={color} style={styles.label}>{children}</Text>
+      <Text size={13} color={theme['c-button-font']} style={[styles.label, kind === 'secondary' ? null : styles.emphasizedLabel]}>{children}</Text>
     </Pressable>
   )
 }
@@ -45,7 +41,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   label: {
-    fontWeight: '600',
     textAlign: 'center',
+  },
+  emphasizedLabel: {
+    fontWeight: '600',
   },
 })

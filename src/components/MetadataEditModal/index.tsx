@@ -126,7 +126,7 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
             <ScrollView keyboardShouldPersistTaps="handled">
               <MetadataForm ref={metadataFormRef} />
             </ScrollView>
-            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-250'] }]}>
+            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-border-background'] }]}>
               <MediaAction onPress={() => { dialogRef.current?.setVisible(false) }}>{t('cancel')}</MediaAction>
               <MediaAction kind="primary" onPress={() => { void handleUpdate() }} disabled={processing}>
                 {processing ? t('metadata_edit_modal_processing') : t('metadata_edit_modal_confirm')}

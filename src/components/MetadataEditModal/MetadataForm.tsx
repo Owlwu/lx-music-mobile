@@ -90,7 +90,7 @@ export default forwardRef<MetadataFormType, {}>((props, ref) => {
         numberOfLines={2}
         scrollEnabled
         editable={false}
-        style={{ ...styles.pathText, color: theme['c-700'] }}
+        style={{ ...styles.pathText, color: theme['c-primary-font'] }}
       />
 
       <InputItem

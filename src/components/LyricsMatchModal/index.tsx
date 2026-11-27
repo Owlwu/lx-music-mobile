@@ -305,14 +305,14 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
     if (searchState === 'error') {
       return (
         <View style={styles.center}>
-          <Text size={13} color={theme['c-700']}>{t('lyrics_match_error')}</Text>
+          <Text size={13} color={theme['c-font-label']}>{t('lyrics_match_error')}</Text>
           <MediaAction onPress={() => { void startSearch(keyword) }}>{t('lyrics_match_retry')}</MediaAction>
         </View>
       )
     }
     if (!candidates.length) {
       return searchState === 'success'
-        ? <View style={styles.center}><Text size={13} color={theme['c-700']}>{t('lyrics_match_empty')}</Text></View>
+        ? <View style={styles.center}><Text size={13} color={theme['c-font-label']}>{t('lyrics_match_empty')}</Text></View>
         : null
     }
     return (
@@ -350,7 +350,6 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
                   value={keyword}
                   onChangeText={setKeyword}
                   placeholder={t('lyrics_match_search_placeholder')}
-                  placeholderTextColor={theme['c-700']}
                   returnKeyType="search"
                   onSubmitEditing={() => { void startSearch(keyword) }}
                   style={[mediaEditStyles.field, { backgroundColor: theme['c-primary-input-background'] }]}
@@ -365,16 +364,16 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
             </View>
             {isSuspectInstrumental ? <Text size={12} color={theme['c-primary-font']} style={styles.hint}>{t('lyrics_match_suspect_instrumental')}</Text> : null}
             <View style={styles.resultHeader}>
-              <Text size={13} style={mediaEditStyles.title} color={theme['c-font']}>{t('lyrics_match_result_title', { num: candidates.length })}</Text>
+              <Text size={13} style={mediaEditStyles.title} color={theme['c-font-label']}>{t('lyrics_match_result_title', { num: candidates.length })}</Text>
             </View>
             <View style={styles.resultsAndPreview} onLayout={({ nativeEvent }) => { setResultsAreaHeight(nativeEvent.layout.height) }}>
               {renderCandidateArea()}
               <View style={[styles.divider, { backgroundColor: theme['c-primary-light-200-alpha-400'] }]} />
               <View style={styles.previewArea}>
                 <View style={styles.previewHeader}>
-                  <Text size={13} style={mediaEditStyles.title} color={theme['c-font']}>{t('lyrics_match_preview')}</Text>
-                  {hasTranslation ? <Text size={11} color={theme['c-700']} style={styles.previewTag}>{t('lyrics_match_translation_available')}</Text> : null}
-                  {hasRomaji ? <Text size={11} color={theme['c-700']} style={styles.previewTag}>{t('lyrics_match_roma_available')}</Text> : null}
+                  <Text size={13} style={mediaEditStyles.title} color={theme['c-font-label']}>{t('lyrics_match_preview')}</Text>
+                  {hasTranslation ? <Text size={11} color={theme['c-font-label']} style={styles.previewTag}>{t('lyrics_match_translation_available')}</Text> : null}
+                  {hasRomaji ? <Text size={11} color={theme['c-font-label']} style={styles.previewTag}>{t('lyrics_match_roma_available')}</Text> : null}
                 </View>
                 <ScrollView
                   key={selected ? `${selected.source}_${selected.id}` : undefined}
@@ -406,16 +405,16 @@ export default forwardRef<LyricsMatchModalType>((props, ref) => {
                               <Text
                                 key={index}
                                 size={entry.type === 'main' ? 12 : 11}
-                                color={entry.type === 'main' ? undefined : theme['c-700']}
+                                color={entry.type === 'main' ? undefined : theme['c-font-label']}
                                 selectable
                               >{entry.text}</Text>
                           ))
-                          : <Text size={12} color={theme['c-700']}>{selected ? t('lyrics_match_preview_empty') : t('lyrics_match_select_tip')}</Text>
+                          : <Text size={12} color={theme['c-font-label']}>{selected ? t('lyrics_match_preview_empty') : t('lyrics_match_select_tip')}</Text>
                   }
                 </ScrollView>
               </View>
             </View>
-            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-250'] }]}>
+            <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-border-background'] }]}>
               <MediaAction onPress={() => { dialogRef.current?.setVisible(false) }}>{t('cancel')}</MediaAction>
               <MediaAction kind="primary" disabled={!canApply} onPress={() => { void handleApply() }}>
                 {applying ? t('lyrics_match_applying') : t('lyrics_match_apply')}

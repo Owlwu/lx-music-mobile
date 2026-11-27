@@ -21,6 +21,7 @@ export default forwardRef<FastScrollBarType, FastScrollBarProps>(({ viewportHeig
   const theme = useTheme()
   const t = useI18n()
   const [offset, setOffset] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
   const dragging = useRef(false)
   const maxOffset = Math.max(0, contentHeight - viewportHeight)
 
@@ -30,6 +31,7 @@ export default forwardRef<FastScrollBarType, FastScrollBarProps>(({ viewportHeig
     },
     reset() {
       dragging.current = false
+      setIsDragging(false)
       setOffset(0)
     },
   }), [])
@@ -50,9 +52,9 @@ export default forwardRef<FastScrollBarType, FastScrollBarProps>(({ viewportHeig
         maximumValue={maxOffset}
         step={1}
         value={Math.min(offset, maxOffset)}
-        minimumTrackTintColor={theme['c-primary-alpha-800']}
-        maximumTrackTintColor={theme['c-250']}
-        thumbTintColor={theme.isDark ? theme['c-font'] : theme['c-primary-dark-500']}
+        minimumTrackTintColor={isDragging ? theme['c-primary-alpha-900'] : 'transparent'}
+        maximumTrackTintColor={isDragging ? theme['c-primary-alpha-900'] : 'transparent'}
+        thumbTintColor={isDragging ? theme['c-primary-alpha-200'] : theme['c-350']}
         style={[
           styles.slider,
           {
@@ -61,13 +63,17 @@ export default forwardRef<FastScrollBarType, FastScrollBarProps>(({ viewportHeig
             top: (viewportHeight - GUTTER_WIDTH) / 2,
           },
         ]}
-        onSlidingStart={() => { dragging.current = true }}
+        onSlidingStart={() => {
+          dragging.current = true
+          setIsDragging(true)
+        }}
         onValueChange={position => {
           // 键盘和读屏调节没有触摸开始及结束事件。
           if (!dragging.current) jumpTo(position)
         }}
         onSlidingComplete={position => {
           dragging.current = false
+          setIsDragging(false)
           jumpTo(position)
         }}
       />

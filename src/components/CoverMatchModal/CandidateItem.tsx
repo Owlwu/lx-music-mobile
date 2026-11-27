@@ -32,12 +32,12 @@ export default memo(({ candidate, selected, onPress }: CandidateItemProps) => {
       leading={<Image url={candidate.thumbnailUrl} style={thumbStyle} resizeMode="cover" />}>
       <View style={styles.main}>
         <Text size={14} numberOfLines={1}>{candidate.name || '-'}</Text>
-        <Text size={12} style={styles.meta} color={theme['c-700']} numberOfLines={1}>
+        <Text size={12} style={styles.meta} color={theme['c-font-label']} numberOfLines={1}>
           {details || '-'}
         </Text>
         <View style={styles.tags}>
-          <Text size={11} color={theme['c-700']}>{sourceLabel}</Text>
-          <Text size={11} color={theme['c-700']}>{scoreText}</Text>
+          <Text size={11} color={theme['c-font-label']}>{sourceLabel}</Text>
+          <Text size={11} color={theme['c-font-label']}>{scoreText}</Text>
         </View>
       </View>
     </MediaCandidate>

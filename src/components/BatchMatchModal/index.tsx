@@ -131,11 +131,11 @@ export default forwardRef<BatchMatchModalType>((props, ref) => {
   return visible
     ? <Dialog appearance="media" ref={dialogRef} title={t('batch_match__title')} width="90%" bgHide={false} keyHide={false} closeBtn={false} onHide={close}>
         <View style={styles.content}>
-          <Text size={14}>{message()}</Text>
+          <Text size={14} color={view.type === 'progress' ? theme['c-font-label'] : undefined}>{message()}</Text>
           {view.type === 'progress' && view.progress.phase === 'matching'
-            ? <Text size={12} color={theme['c-700']} style={styles.detail}>{t('batch_match__progress_counts', { ...view.progress })}</Text>
+            ? <Text size={12} color={theme['c-font-label']} style={styles.detail}>{t('batch_match__progress_counts', { ...view.progress })}</Text>
             : null}
-          <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-250'] }]}>
+          <View style={[mediaEditStyles.footer, { borderTopColor: theme['c-border-background'] }]}>
             <MediaAction onPress={cancel}>{t(isFinished ? 'close' : 'batch_match__cancel')}</MediaAction>
             {view.type === 'review'
               ? <MediaAction kind="primary" onPress={() => { respondToReview(true) }}>{t('batch_match__btn_short')}</MediaAction>

@@ -33,17 +33,17 @@ export default memo(({ candidate, selected, onPress }: CandidateItemProps) => {
       <View style={styles.main}>
         <Text size={14} numberOfLines={1}>{candidate.name || '-'}</Text>
         <View style={styles.metaRow}>
-          <Text size={12} style={styles.metaText} color={theme['c-700']} numberOfLines={1}>
+          <Text size={12} style={styles.metaText} color={theme['c-font-label']} numberOfLines={1}>
             {details || '-'}
           </Text>
           {durationText
-            ? <Text size={12} style={styles.metaDuration} color={theme['c-700']}>{durationText}</Text>
+            ? <Text size={12} style={styles.metaDuration} color={theme['c-font-label']}>{durationText}</Text>
             : null}
         </View>
         <View style={styles.tags}>
-          <Text size={11} color={theme['c-700']}>{sourceLabel}</Text>
-          <Text size={11} color={theme['c-700']}>{syncLabel}</Text>
-          {instrumentalLabel ? <Text size={11} color={theme['c-700']}>{instrumentalLabel}</Text> : null}
+          <Text size={11} color={theme['c-font-label']}>{sourceLabel}</Text>
+          <Text size={11} color={theme['c-font-label']}>{syncLabel}</Text>
+          {instrumentalLabel ? <Text size={11} color={theme['c-primary-font']}>{instrumentalLabel}</Text> : null}
         </View>
       </View>
     </MediaCandidate>

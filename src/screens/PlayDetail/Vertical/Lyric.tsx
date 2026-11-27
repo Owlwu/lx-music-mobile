@@ -72,13 +72,13 @@ const LrcLine = memo(({ line, lineNum, activeLine, onLayout }: LineProps) => {
   const colors = useMemo(() => {
     const active = activeLine == lineNum
     return active ? [
-      theme.isDark ? theme['c-font'] : theme['c-primary-dark-500'],
-      theme['c-700'],
+      theme['c-primary'],
+      theme['c-primary-alpha-200'],
       1,
     ] as const : [
-      theme['c-700'],
-      theme['c-700'],
-      1,
+      theme['c-350'],
+      theme['c-300'],
+      0.6,
     ] as const
   }, [activeLine, lineNum, theme])
 
